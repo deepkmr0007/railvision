@@ -23,7 +23,7 @@ PNR_URL = "https://www.indianrail.gov.in/enquiry/PNR/PnrEnquiry.html?locale=en"
 DATE_FORMATS = ["%d-%b-%Y", "%d-%m-%Y", "%d/%m/%Y", "%d %b %Y", "%d-%b-%y", "%d %b", "%d-%b", "%Y-%m-%d",
                 "%a, %d %b", "%d %B %Y", "%d.%m.%Y", "%d%m%Y"]
 
-PLACEHOLDER = re.compile(r"\{(train|query|station|class|date|pnr)(?::([^}]*))?\}")
+PLACEHOLDER = re.compile(r"\{(train|query|station|class|date|pnr|url)(?::([^}]*))?\}")
 
 
 @dataclass
@@ -39,7 +39,7 @@ class Step:
 @dataclass
 class Recipe:
     name: str                       # ntes_status | ntes_search | irctc_berth | custom name
-    kind: str                       # status | search | berth | list | pnr
+    kind: str                       # status | search | berth | list | pnr | page
     start_url: str
     mode: str = "auto"              # auto | recorded
     steps: list[Step] = field(default_factory=list)
@@ -136,6 +136,9 @@ DEFAULT_RECIPES = {
     "ntes_diverted": Recipe(
         name="ntes_diverted", kind="list", start_url=NTES_URL, mode="auto",
         nav_texts=["Diverted Trains", "Exceptional Trains"], result_texts=[], notes="UNVERIFIED."),
+    "web_page": Recipe(
+        name="web_page", kind="page", start_url="{url}", mode="auto",
+        notes="Reads an official announcements page or notice (HTML or PDF) in your browser, like you would."),
     "pnr_status": Recipe(
         name="pnr_status", kind="pnr", start_url=PNR_URL, mode="auto", result_texts=["{pnr}"],
         notes="UNVERIFIED URL. Fills your PNR; the page's CAPTCHA is always typed by YOU in the visible window."),

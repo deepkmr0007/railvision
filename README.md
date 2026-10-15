@@ -2,6 +2,19 @@
 
 Running status · **non-stop station crossing** · station boards · chart vacancy · persistent tracking with alerts · English/Hindi/Hinglish assistant · WhatsApp / Telegram / email / app delivery · premium command-center dashboard (installable PWA).
 
+## New in 2.4: Android app (APK)
+
+**Install on your phone:** open **https://github.com/deepkmr0007/railvision/releases/latest** on the phone and tap
+**RailVision.apk** (Android 8.0+). The whole engine runs inside the app; its built-in browser assistant checks your
+trains on the official pages one at a time, and alerts arrive as phone notifications. No computer needed.
+Guide: [`docs/ANDROID.md`](docs/ANDROID.md). Every push rebuilds the APK with GitHub Actions and publishes it as a Release.
+
+## New in 2.3: official railway websites
+
+Press releases from all 16 zonal railway websites, including the notice itself (web page or PDF), matched to your trains
+and stations. Zones of your trips switch on automatically; sites that refuse automated readers can be read by your own
+browser assistant instead. See [`docs/PERSONAL.md`](docs/PERSONAL.md#official-railway-websites-v23).
+
 ## New in 2.2: built for your own trips
 
 * **My Journeys**: heads-up, chart-time, leave-home (follows the live delay) and wake-up-before-your-stop
@@ -30,7 +43,7 @@ Full guide: [`docs/BROWSER_ASSISTANT.md`](docs/BROWSER_ASSISTANT.md).
 
 ```bash
 python -m railvision.api.server --port 8000      # demo mode, opens on http://127.0.0.1:8000
-python -m unittest discover -s tests              # 137 tests (browser tests need: pip install playwright)
+python -m unittest discover -s tests              # 153 tests (browser tests need: pip install playwright pypdf)
 python tools/export_demo_snapshot.py              # rebuild the offline replay dashboard (dist/)
 ```
 

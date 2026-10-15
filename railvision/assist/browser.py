@@ -34,7 +34,8 @@ CAPTURE_JS = """() => {
   const vis = el => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
   const tables = [...document.querySelectorAll('table')].filter(vis).slice(0, 25).map(tb =>
     [...tb.rows].slice(0, 500).map(r => [...r.cells].slice(0, 16).map(c => c.innerText.trim().replace(/\\s+/g, ' '))));
-  return {text: (document.body ? document.body.innerText : '').slice(0, 200000), tables, title: document.title, url: location.href};
+  const links = [...document.querySelectorAll('a[href]')].filter(vis).slice(0, 800).map(a => ({t: (a.innerText || a.title || '').trim().slice(0, 300), h: a.href}));
+  return {text: (document.body ? document.body.innerText : '').slice(0, 200000), tables, links, title: document.title, url: location.href};
 }"""
 
 SCAN_JS = """() => {
@@ -378,7 +379,55 @@ class Runner:
                                                "The site may have changed — run TEACH again.")
 
     # ------------------------------------------------------------ public entry
+    def run_page(self, recipe: Recipe, vars_: dict) -> dict:
+        """An official notices page or a notice PDF: open it like a reader, capture text + links (or the PDF bytes)."""
+        from ..news.official import is_pdf
+        started = now_ist()
+        url = render(recipe.start_url, vars_)
+        out = {"recipe": recipe.name, "kind": "page", "vars": {k: str(v) for k, v in vars_.items()}, "status": "ok", "reason": "",
+               "text": "", "tables": [], "links": [], "title": "", "url": url, "json": [], "screenshot_b64": None,
+               "steps": self.steps, "started_at": iso(started)}
+        try:
+            if not url.startswith(("https://", "http://")):
+                raise Blocked("error", "not a web address")
+            if is_pdf(url):
+                self._note(f"read PDF {url[-60:]}")
+                r = self.page.context.request.get(url, timeout=45000)
+                body = r.body()
+                if r.status != 200 or not body.startswith(b"%PDF"):
+                    raise Blocked("error", f"PDF not available (HTTP {r.status})")
+                out["pdf_b64"] = base64.b64encode(body[:4_000_000]).decode()
+            else:
+                self._note(f"open {url[:90]}")
+                try:
+                    resp = self.page.goto(url, wait_until="domcontentloaded", timeout=45000)
+                except Exception as e:
+                    if "Download is starting" in str(e):          # served as a file: read it as a PDF
+                        r = self.page.context.request.get(url, timeout=45000)
+                        if r.body().startswith(b"%PDF"):
+                            out["pdf_b64"] = base64.b64encode(r.body()[:4_000_000]).decode()
+                            out["finished_at"] = iso(now_ist())
+                            return out
+                    raise
+                if resp is not None and resp.status in (401, 403, 429):
+                    raise Blocked("blocked", f"The site refused the request (HTTP {resp.status}).")
+                try:
+                    self.page.wait_for_load_state("networkidle", timeout=8000)
+                except Exception:
+                    pass
+                self.check_blockers("on the announcements page")
+                cap = self.page.evaluate(CAPTURE_JS)
+                out.update(text=cap["text"], tables=cap["tables"], links=cap["links"], title=cap["title"], url=cap["url"])
+        except Blocked as b:
+            out["status"], out["reason"] = b.status, str(b)
+        except Exception as e:
+            out["status"], out["reason"] = "error", f"{type(e).__name__}: {str(e)[:200]}"
+        out["finished_at"] = iso(now_ist())
+        return out
+
     def run(self, recipe: Recipe, vars_: dict) -> dict:
+        if recipe.kind == "page":
+            return self.run_page(recipe, vars_)
         started = now_ist()
         status, reason = "ok", ""
         try:

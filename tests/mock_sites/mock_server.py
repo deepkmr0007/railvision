@@ -141,9 +141,35 @@ document.getElementById('gc').onclick=async()=>{const t=document.getElementById(
 </script></body></html>"""
 
 
+MENU = "".join(f'<li><a href="/zone/view_section.jsp?lang=0&id=0,{i}">{t}</a></li>' for i, t in enumerate(
+    ["About Us", "Divisions", "Tenders and Recruitment", "Passenger Services", "Freight Services", "Right to Information",
+     "Vigilance", "Contact Us", "Sitemap", "Screen Reader Access"]))
+
+
+def zone_list(n_items: int) -> str:
+    items = [("view_detail.jsp?lang=0&id=0,4,268&dcd=101", "Commissioning of new foot over bridge at Bandikui station"),
+             ("uploads/files/notice102.pdf", "Cancellation / partial cancellation of trains due to traffic block"),
+             ("view_detail.jsp?lang=0&id=0,4,268&dcd=103", "Extension of special trains for the festival season")][:n_items]
+    rows = "".join(f'<tr><td>15.10.2026</td><td><a href="/zone/{h}">{t}</a></td></tr>' for h, t in items)
+    return (f'<html><head><title>Press Releases - MOCK Zonal Railway</title></head><body><nav><ul class="menu">{MENU}</ul></nav>'
+            f'<h2>Press Releases (MOCK zonal portal, test page)</h2><table>{rows}</table><footer><a href="/zone/disclaimer">Disclaimer and Copyright Policy</a></footer></body></html>')
+
+
+ZONE_DETAIL = {
+    "101": "<html><body><nav><ul class='menu'>" + MENU + "</ul></nav><h3>Commissioning of new foot over bridge at Bandikui station</h3>"
+           "<p>A new foot over bridge connecting platforms 1 to 3 at Bandikui (BKI) has been opened for passengers.</p></body></html>",
+    "103": "<html><body><nav><ul class='menu'>" + MENU + "</ul></nav><h3>Extension of special trains for the festival season</h3>"
+           "<p>Train No. 04815/04816 Jaipur - Delhi Sarai Rohilla festival special extended till 30.11.2026.</p></body></html>",
+}
+
+
 def make_server(port=0, now=lambda: datetime.now(IST)):
     data = MockData(now)
     stats = {"hits": 0}
+    from pdfmini import make_pdf
+    zone_state = {"items": 1}
+    pdf = make_pdf(["North Western Railway - Press Release (MOCK)", "Due to a traffic block between Rewari and Alwar,",
+                    "Train No. 12951 will remain cancelled on 20.10.2026", "and 12956 will be short terminated at Alwar."])
 
     class H(BaseHTTPRequestHandler):
         def log_message(self, *a):
@@ -183,6 +209,12 @@ def make_server(port=0, now=lambda: datetime.now(IST)):
                                       "<table border=1><tr><th>S.No</th><th>Booking Status</th><th>Current Status</th></tr>"
                                       "<tr><td>Passenger 1</td><td>WL/12</td><td>RAC/4</td></tr><tr><td>Passenger 2</td><td>CNF/B3/45/LB</td>"
                                       "<td>CNF/B3/45/LB</td></tr></table></body></html>")
+            if u.path == "/zone/view_section.jsp":
+                return self.send(200, zone_list(zone_state["items"]))
+            if u.path == "/zone/view_detail.jsp":
+                return self.send(200, ZONE_DETAIL.get(q.get("dcd", ""), "<html><body>not found</body></html>"))
+            if u.path == "/zone/uploads/files/notice102.pdf":
+                return self.send(200, pdf, "application/pdf")
             if u.path == "/ntes-b/":
                 if q.get("mode") == "blocked":
                     return self.send(403, "<html><body><h1>Access Denied</h1><p>You don't have permission to access this resource.</p></body></html>")
@@ -216,7 +248,7 @@ def make_server(port=0, now=lambda: datetime.now(IST)):
     srv = ThreadingHTTPServer(("127.0.0.1", port), H)
     srv.daemon_threads = True
     threading.Thread(target=srv.serve_forever, daemon=True).start()
-    srv.data, srv.stats = data, stats
+    srv.data, srv.stats, srv.zone_state = data, stats, zone_state
     return srv
 
 

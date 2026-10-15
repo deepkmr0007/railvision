@@ -1,9 +1,35 @@
 # RAILVISION AI — Project status
 
-**Date:** 15 Oct 2026 · **Build:** v2.2.0 · **Test evidence:** `python -m unittest discover -s tests` → **117 tests, all passing**
+**Date:** 15 Oct 2026 · **Build:** v2.3.0 · **Test evidence:** `python -m unittest discover -s tests` → **117 tests, all passing**
 (crossing 26 · WhatsApp/messaging 16 · providers 14 · chatbot 13 · parsers 13 · tracker 11 · API + real TCP server/SSE 10 ·
 assist service/API 9 · pacer 1 · browser end-to-end 4). Dashboard v2.1 rendered headless at 1280 px (light) and 390 px (dark)
 across all 10 views: no script errors, no horizontal overflow.
+
+## v2.4 — Android app (15 Oct 2026)
+
+**Tests:** 153 passing (adds 7 phone-driver tests: running status on two layouts, berth chart with class, exception
+list, name search, CAPTCHA blocked vs handed over (PNR), blocked site, notice page links, and a recorded recipe replayed).
+
+| Item | Status | Evidence |
+|---|---|---|
+| APK build | **Built and published by GitHub Actions** on every push (39 MB, arm64-v8a + x86_64, signed, `apksigner verify` OK) | workflow `Android APK` |
+| Runs on Android | **Installed and run on an Android 14 emulator in CI**: engine up in 6 s; the in-app assistant read the mock running-status page (confidence 0.85, "Departed from ALWAR (AWR)") and the berth chart (5 vacant, 3A from AWR) in 30 s; an Android notification was posted; no crash in the log | emulator screenshots + `emulator-results.json` attached to each release |
+| Engine on Android | Same Python code, stdlib only + pypdf/certifi; all native modules it needs are in the APK | APK inspection (`_sqlite3`, `_ssl`, `zoneinfo`, …) |
+| Phone browser driver | Passes the mock-site suite in Chromium and in the Android WebView | `tests/test_phone_driver.py`, emulator job |
+| **Not verified** | A physical phone; phone-brand battery savers (Xiaomi, Oppo, Vivo…); the real NTES / IRCTC / PNR mobile pages. | — |
+
+## v2.3 — official railway websites (15 Oct 2026)
+
+**Tests:** 146 passing. Adds 8 official-page tests and a real-browser end-to-end run on a mock zonal portal
+(list → detail page → PDF notice → alert).
+
+* 16 zonal press-release pages built in (7 addresses confirmed by web search, 9 by pattern). Their robots.txt refused our
+  automated fetch tool on 15 Oct 2026, so direct reading will usually report `robots_disallow`. Switching a zone to
+  **Via assistant** reads it in your own browser.
+* **Not verified:** the real page layout of the zonal portals (the links filter targets `view_detail.jsp` / `.pdf` /
+  `/uploads/`, as seen in search-result URLs) and real PDF text quality.
+* **Code is on GitHub:** branch `claude/railvision-v2.2` / `claude/railvision-v2.3` of deepkmr0007/railvision (this
+  session can only push to `claude/…` branches).
 
 ## v2.2 — personal features (15 Oct 2026)
 

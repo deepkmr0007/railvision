@@ -168,6 +168,9 @@ ul.ev{margin:0;padding-left:18px;font-size:.88rem}
 .feed{display:grid;gap:10px}
 .note{border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:var(--surface);display:grid;gap:6px;min-width:0}
 .chip{max-width:100%;overflow:hidden;text-overflow:ellipsis}
+.note>*{min-width:0;max-width:100%}
+details{min-width:0;max-width:100%}
+.bubble{max-width:min(62ch,100%)!important;box-sizing:border-box}
 .note .row{gap:8px}
 .bubble{white-space:pre-wrap;font-size:.84rem;background:var(--sunk);border-radius:10px 10px 10px 2px;padding:10px 12px;max-width:62ch;overflow-wrap:anywhere}
 .chat{display:grid;gap:10px;max-height:62vh;overflow-y:auto;padding:4px}
@@ -521,15 +524,32 @@ async function prefsPanel(){const p=await API.prefs().catch(()=>({}));const dg=a
    <fieldset style="border:0;padding:0;margin:0;display:flex;flex-wrap:wrap;gap:12px"><legend class="eyebrow" style="margin-bottom:4px">Digest & urgent alerts go to</legend>${["app","whatsapp","telegram","email","browser"].map(d=>`<label class="row" style="gap:6px;font-size:.86rem"><input type="checkbox" name="pdest" value="${d}" ${(p.digest_destinations||["app"]).includes(d)?"checked":""} ${d==="app"||!live?"disabled":""}> ${DEST_LABEL[d]}</label>`).join("")}</fieldset>
    ${live?`<div class="row"><button class="btn" type="submit">Save</button><button class="btn ghost" type="button" id="dgSend">Send digest now</button><span id="pMsg" class="muted" style="font-size:.86rem"></span></div>`:""}
    <details ${S.mode==="snapshot"?"open":""}><summary class="muted" style="cursor:pointer;font-size:.86rem">Preview today's digest</summary><div class="bubble" style="margin-top:8px">${esc(dg.text||"")}</div></details></form>`}
+/* ---------------- the Android app (RVAndroid bridge exists only inside the APK) ---------------- */
+const IN_APP=!!window.RVAndroid;
+function toast(m){let x=document.getElementById("rvToast");if(!x){x=document.createElement("div");x.id="rvToast";x.setAttribute("role","status");x.setAttribute("aria-live","polite");
+  x.style.cssText="position:fixed;left:50%;bottom:24px;transform:translateX(-50%);max-width:calc(100% - 32px);background:var(--ink);color:var(--bg);padding:10px 14px;border-radius:10px;font-size:.9rem;z-index:99;box-shadow:0 4px 18px rgba(0,0,0,.25)";document.body.appendChild(x)}
+  x.textContent=m;x.style.display="block";clearTimeout(x._t);x._t=setTimeout(()=>{x.style.display="none"},2600)}
+if(IN_APP)document.addEventListener("visibilitychange",()=>{if(!document.hidden&&S.view==="settings")render()});
+function phoneState(){if(!IN_APP)return null;try{return JSON.parse(RVAndroid.phoneState())}catch(e){return null}}
+function phonePanel(){const p=phoneState();if(!p)return "";
+  return `<div class="panel" style="display:grid;gap:10px"><div class="row" style="justify-content:space-between"><h3 style="margin:0">Phone app</h3><span class="chip c-acc">v${esc(p.version)}</span></div>
+   <label style="display:flex;gap:10px;align-items:flex-start"><input type="checkbox" id="phAssist" ${p.assistant_on?"checked":""} style="margin-top:4px;flex:none"> <span style="min-width:0">Browser assistant reads the official pages for me</span></label>
+   <label style="display:flex;gap:10px;align-items:flex-start"><input type="checkbox" id="phKeep" ${p.keep_running?"checked":""} style="margin-top:4px;flex:none"> <span style="min-width:0">Keep running with the app closed (checks every few minutes; shows a small permanent notification)</span></label>
+   <p class="muted" style="font-size:.82rem;margin:0">Off: Android still runs a check about every 15 minutes, and your phone may delay it to save battery.</p>
+   <div class="row" style="gap:6px">${p.notifications?'<span class="chip c-ok">Notifications on</span>':'<button class="btn ghost" type="button" id="phNotif">Allow notifications</button>'}
+    ${p.battery_unrestricted?'<span class="chip c-ok">Battery: unrestricted</span>':'<button class="btn ghost" type="button" id="phBattery">Let it run in background</button>'}
+    <button class="btn ghost" type="button" id="phOpen">Open assistant browser</button></div>
+   <dl class="kv"><dt>Assistant</dt><dd>${esc(p.needs_you||p.assistant_status||"—")}</dd></dl></div>`}
 function vSettings(){
   const live=S.mode==="server";
   return `<section class="view"><div><div class="eyebrow">Settings</div><h2>Preferences</h2></div>
    <div class="grid">
-    ${S.mode==="server"&&S.serverMode==="live"?`<div class="panel"><h3>Sign in</h3><p class="muted" style="font-size:.86rem;margin-top:0">${S.token?"This browser is signed in.":"Paste the access token from <span class='mono'>assist_data/token.txt</span>, or open the link the launcher printed."}</p>
+    ${phonePanel()}
+    ${S.mode==="server"&&S.serverMode==="live"&&!IN_APP?`<div class="panel"><h3>Sign in</h3><p class="muted" style="font-size:.86rem;margin-top:0">${S.token?"This browser is signed in.":"Paste the access token from <span class='mono'>assist_data/token.txt</span>, or open the link the launcher printed."}</p>
       <form id="tokForm" class="row" style="gap:6px"><label for="tokIn" class="muted" style="position:absolute;left:-9999px">Access token</label><input id="tokIn" class="mono" placeholder="rv_…" autocomplete="off" style="flex:1;min-width:0;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px"><button class="btn" type="submit">Save</button></form></div>`:""}
     <div class="panel"><h3>Appearance</h3><div class="seg" role="group" aria-label="Theme">${["system","light","dark"].map(t=>`<button type="button" data-theme-set="${t}" aria-pressed="${S.theme===t}">${t[0].toUpperCase()+t.slice(1)}</button>`).join("")}</div></div>
     <div class="panel"><h3>Low-bandwidth mode</h3><p class="muted" style="font-size:.86rem;margin-top:0">Hides the map and slows refresh to every 2 minutes.</p><label class="row" style="gap:8px"><input type="checkbox" id="lowbw" ${S.lowbw?"checked":""}> Use low-bandwidth mode</label></div>
-    <div class="panel"><h3>Browser notifications</h3><p class="muted" style="font-size:.86rem;margin-top:0">Show alerts as system notifications while this page is open.</p><button class="btn ghost" type="button" id="notifBtn" ${live?"":"disabled"}>Allow notifications</button> <span id="notifMsg" class="muted" style="font-size:.84rem"></span></div>
+    ${IN_APP?"":`<div class="panel"><h3>Browser notifications</h3><p class="muted" style="font-size:.86rem;margin-top:0">Show alerts as system notifications while this page is open.</p><button class="btn ghost" type="button" id="notifBtn" ${live?"":"disabled"}>Allow notifications</button> <span id="notifMsg" class="muted" style="font-size:.84rem"></span></div>`}
     <div class="panel"><h3>Link WhatsApp</h3><p class="muted" style="font-size:.86rem;margin-top:0">Get a one-time code, then send <span class="mono">LINK &lt;code&gt;</span> to the RAILVISION WhatsApp number. Reply STOP there to unsubscribe.</p><button class="btn ghost" type="button" id="linkBtn" ${live?"":"disabled"}>Get link code</button> <b class="mono" id="linkCode"></b></div>
     ${S.prefsHtml||""}
     <div class="panel"><h3>About this data</h3><p class="muted" style="font-size:.86rem;margin:0">Mode: <b>${esc(S.mode==="snapshot"?"offline demo replay":S.mode==="server"?("server · "+S.serverMode):"no server reachable")}</b>. Demo data is synthetic and always labelled. Live mode refuses demo data entirely.</p></div>
@@ -591,15 +611,22 @@ async function vTrips(){
 /* ---------------- Announcements ---------------- */
 const CAT_LABEL={cancellation:"Cancelled",diversion:"Diverted",reschedule:"Rescheduled",short_termination:"Short-terminated",regulation:"Blocks / regulation",weather:"Weather",special_train:"Special trains",extra_coach:"Extra coaches",platform:"Platform",ticketing:"Tickets & fares",safety:"Safety",new_service:"New services",general:"General"};
 const CAT_CHIP=c=>["cancellation","diversion","short_termination","regulation","weather","safety"].includes(c)?"c-bad":["reschedule","platform"].includes(c)?"c-amber":["special_train","extra_coach","new_service"].includes(c)?"c-ok":"c-nv";
-function newsItem(n){return `<article class="note" style="gap:6px"><div class="row" style="gap:6px;justify-content:space-between"><span class="row" style="gap:6px"><span class="chip ${n.source_kind==="x"?"c-acc":"c-nv"}">${esc(n.source_name)}</span>${n.official?'<span class="chip c-ok">Official</span>':""}${n.categories.filter(c=>c!=="general").map(c=>`<span class="chip ${CAT_CHIP(c)}">${esc(CAT_LABEL[c]||c)}</span>`).join("")}</span>
+function newsItem(n){return `<article class="note" style="gap:6px"><div class="row" style="gap:6px;justify-content:space-between"><span class="row" style="gap:6px;min-width:0;flex:1 1 0"><span class="chip ${n.source_kind==="x"?"c-acc":"c-nv"}">${esc(n.source_name)}</span>${n.official?'<span class="chip c-ok">Official</span>':""}${n.categories.filter(c=>c!=="general").map(c=>`<span class="chip ${CAT_CHIP(c)}">${esc(CAT_LABEL[c]||c)}</span>`).join("")}</span>
    <span class="fresh">${esc(n.published_at?n.published_at.slice(0,16).replace("T"," "):hm(n.fetched_at))}</span></div>
-   <div style="font-weight:600;overflow-wrap:anywhere">${esc(n.title)}</div>${n.text&&n.text!==n.title?`<div class="muted" style="font-size:.86rem;overflow-wrap:anywhere">${esc(n.text.slice(0,280))}</div>`:""}
+   <div style="font-weight:600;overflow-wrap:anywhere">${esc(n.title)}</div>${n.text&&n.text!==n.title?`${n.detail_status==="ok"?"":`<div class="muted" style="font-size:.86rem;overflow-wrap:anywhere">${esc(n.text.slice(0,280))}</div>`}`:""}
+   ${n.detail_status==="ok"&&n.text&&n.text!==n.title?`<details><summary class="muted" style="cursor:pointer;font-size:.84rem">Read the notice${/\.pdf(\?|$)/i.test(n.url||"")?" (PDF text)":""}</summary><div class="bubble" style="margin-top:6px;max-height:320px;overflow:auto">${esc(n.text.slice(0,3000))}</div></details>`:""}
+   ${n.detail_status&&n.detail_status!=="ok"&&n.detail_note?`<div class="muted" style="font-size:.78rem">Notice text not read: ${esc(n.detail_note)}</div>`:""}
    <div class="row" style="gap:6px">${n.score>=0.4?`<span class="chip ${n.score>=0.8?"c-bad":"c-amber"}" style="white-space:normal">For you: ${esc(n.why)}</span>`:""}${n.trains.map(t=>`<span class="chip c-nv mono">${esc(t)}</span>`).join("")}${n.stations.map(t=>`<span class="chip c-nv mono">${esc(t)}</span>`).join("")}${n.url?`<a href="${esc(n.url)}" target="_blank" rel="noopener" style="font-size:.84rem">Open source</a>`:""}</div></article>`}
 async function vNews(){
   const f=S.newsF||(S.newsF={rel:true,cat:"",q:""});
   const [items,src]=await Promise.all([API.news(f.rel,f.cat,f.q).catch(()=>[]),API.newsSources().catch(()=>({sources:[]}))]);const live=S.mode==="server";const x=src.x||{};
   const cats=Object.keys(CAT_LABEL).filter(c=>c!=="general");
-  const srcRows=(src.sources||[]).map(s=>`<div class="row" style="justify-content:space-between;border-top:1px solid var(--line);padding:7px 0;gap:8px">
+  const zoneSrc=(src.sources||[]).filter(s=>s.id.startsWith("zone_")),otherSrc=(src.sources||[]).filter(s=>!s.id.startsWith("zone_"));
+  const zoneRows=zoneSrc.sort((a,b)=>(b.enabled-a.enabled)||a.name.localeCompare(b.name)).map(s=>`<div class="row" style="justify-content:space-between;border-top:1px solid var(--line);padding:7px 0;gap:8px">
+    <div style="min-width:0"><div style="font-weight:600;font-size:.9rem">${esc(s.zone)} Railway ${s.verified?'<span class="chip c-ok">address checked</span>':'<span class="chip c-nv">address unconfirmed</span>'}</div>
+     <div class="muted" style="font-size:.78rem">${s.enabled?(s.fetch_via==="assistant"?"read by your browser assistant":"read directly"):"off"}${s.last_status?` · last: ${esc(s.last_status)}`:""}${s.count?` · ${s.count} items`:""}${s.last_status==="robots_disallow"?" · this site asks automated readers to stay away; switch to your browser assistant to read it like a person":""}</div></div>
+    ${live?`<span class="row" style="gap:6px"><button class="btn ghost" data-nact="${s.enabled?"off":"on"}" data-sid="${s.id}">${s.enabled?"On":"Off"}</button>${s.enabled?`<button class="btn ghost" data-nact="via" data-via="${s.fetch_via==="assistant"?"direct":"assistant"}" data-sid="${s.id}" title="How the page is read">${s.fetch_via==="assistant"?"Via assistant":"Direct"}</button>`:""}</span>`:`<span class="chip ${s.enabled?"c-ok":"c-nv"}">${s.enabled?(s.fetch_via==="assistant"?"assistant":"direct"):"off"}</span>`}</div>`).join("");
+  const srcRows=otherSrc.map(s=>`<div class="row" style="justify-content:space-between;border-top:1px solid var(--line);padding:7px 0;gap:8px">
     <div style="min-width:0"><div style="font-weight:600;font-size:.9rem">${esc(s.name)} ${s.official?'<span class="chip c-ok">Official</span>':""}</div><div class="muted" style="font-size:.78rem;overflow-wrap:anywhere">${esc(s.kind==="x"?"@"+s.handle+" · official X API":s.url||"read by your browser assistant")} · every ${s.interval_min} min · ${s.count} items${s.last_status?` · last: ${esc(s.last_status)}${s.last_detail?" ("+esc(s.last_detail)+")":""}`:""}</div></div>
     ${live&&s.kind!=="assist"?`<span class="row" style="gap:6px"><button class="btn ghost" data-nact="${s.enabled?"off":"on"}" data-sid="${s.id}">${s.enabled?"On":"Off"}</button>${s.enabled?`<button class="btn ghost" data-nact="now" data-sid="${s.id}">Fetch</button>`:""}</span>`:`<span class="chip ${s.enabled||s.kind==="assist"?"c-ok":"c-nv"}">${s.kind==="assist"?"via assistant":s.enabled?"on":"off"}</span>`}</div>`).join("");
   return `<section class="view"><div><div class="eyebrow">Official notices, in one place</div><h2>Announcements</h2>
@@ -610,7 +637,8 @@ async function vNews(){
       <select id="nCat" style="border:1px solid var(--line);border-radius:999px;padding:5px 10px;background:var(--surface)"><option value="">All topics</option>${cats.map(c=>`<option value="${c}" ${f.cat===c?"selected":""}>${CAT_LABEL[c]}</option>`).join("")}</select>
       <form id="nSearch" class="row" style="gap:6px"><input id="nQ" value="${esc(f.q)}" placeholder="Search" style="border:1px solid var(--line);border-radius:999px;padding:6px 12px;background:var(--bg);width:11em"></form></div>
      <div class="feed">${items.length?items.map(newsItem).join(""):`<p class="empty">${f.rel?"Nothing that concerns your trains or stations right now. Switch to Everything to see all railway notices.":"No announcements yet."}</p>`}</div></div></div>
-   <div class="col"><div class="panel"><h3>Sources</h3>${srcRows||'<p class="empty">No sources.</p>'}</div>
+   <div class="col"><div class="panel"><h3>Official railway websites</h3><p class="muted" style="font-size:.84rem;margin-top:0">Press releases from each zone's website, including the notice itself (page or PDF). Zones of your trips and stations switch on automatically.</p>${zoneRows}</div>
+    <div class="panel"><h3>Other sources</h3>${srcRows||'<p class="empty">No sources.</p>'}</div>
     <div class="panel"><h3>X (Twitter)</h3><p class="muted" style="font-size:.85rem;margin-top:0">Read only through X's official API with your own key. X charges per post read (about $0.005 each, checked Oct 2026). RAILVISION stops at your daily budget.</p>
      <dl class="kv"><dt>Key</dt><dd>${x.configured?"added":"not added (set X_BEARER_TOKEN)"}</dd><dt>Today</dt><dd>${x.posts??0} of ${x.budget_posts??60} posts · ≈ $${(x.cost_usd??0).toFixed(3)}</dd></dl>
      <div class="bar" style="margin-top:6px"><i style="width:${Math.min(100,Math.round(100*(x.posts||0)/(x.budget_posts||60)))}%"></i></div></div>
@@ -637,9 +665,9 @@ function ago(iso){if(!iso)return "never";const now=S.mode==="snapshot"?Date.pars
 function istDate(off){const d=new Date(Date.now()+5.5*36e5+off*864e5);return d.toISOString().slice(0,10)}
 function agentCard(a){const ag=a.agent||{};const st=ag.online?(ag.state==="paused"?["Paused","c-amber"]:ag.state==="needs_you"?["Needs you","c-bad"]:["Online","c-ok"]):["Offline","c-nv"];
   return `<div class="panel" style="display:grid;gap:8px"><div class="row" style="justify-content:space-between"><h3 style="margin:0">Browser assistant</h3><span class="chip ${st[1]}">${st[0]}</span></div>
-   <p class="muted" style="margin:0;font-size:.86rem">Runs on your computer and opens the official pages in a normal browser window, one train at a time. It never solves CAPTCHAs: if a site asks for one, the window is handed to you.</p>
+   <p class="muted" style="margin:0;font-size:.86rem">${IN_APP?"Runs inside this app and opens the official pages in its own browser, one train at a time.":"Runs on your computer and opens the official pages in a normal browser window, one train at a time."} It never solves CAPTCHAs: if a site asks for one, the window is handed to you.</p>
    <dl class="kv"><dt>Last contact</dt><dd>${esc(ago(ag.last_seen))}</dd>${ag.reason?`<dt>Note</dt><dd>${esc(ag.reason)}</dd>`:""}<dt>Site health</dt><dd>${esc((a.health||{}).status||"—")}</dd></dl>
-   ${ag.online?"":`<div class="banner">Start it on your computer: <span class="mono">start.bat</span> (Windows) or <span class="mono">./start.sh</span> (Mac/Linux). It signs this page in and keeps checking while it runs.</div>`}</div>`}
+   ${IN_APP?`<div class="row" style="gap:6px"><button class="btn ghost" type="button" id="phOpen">Open assistant browser</button><button class="btn ghost" type="button" id="phCheck">Check now</button></div>`:ag.online?"":`<div class="banner">Start it on your computer: <span class="mono">start.bat</span> (Windows) or <span class="mono">./start.sh</span> (Mac/Linux). It signs this page in and keeps checking while it runs.</div>`}</div>`}
 function recipeCard(a){const r=a.recipes||{};const row=(k,label)=>{const x=r[k]||{};return `<div class="row" style="justify-content:space-between;border-top:1px solid var(--line);padding:6px 0;gap:8px">
    <span>${label}</span><span class="row" style="gap:6px"><span class="chip ${x.mode==="recorded"?"c-acc":"c-nv"}">${x.mode==="recorded"?x.steps+" recorded steps":"automatic"}</span><span class="chip ${x.verified?"c-ok":"c-amber"}">${x.verified?"verified":"not yet verified"}</span></span></div>`};
   return `<div class="panel"><h3>How pages are opened</h3>${row("ntes_status","Running status (NTES)")}${row("irctc_berth","Vacant berths (IRCTC charts)")}${row("ntes_search","Train name search")}
@@ -734,6 +762,7 @@ document.addEventListener("click",async e=>{const t=e.target.closest("button,[da
   if(d.copy){try{await navigator.clipboard.writeText(d.copy);t.textContent="Copied"}catch(e){t.textContent=d.copy}return}
   if(d.jact){try{if(d.jact==="pnr"){await API.post(`/api/journeys/${d.jid}/check-pnr`,{});t.textContent="Opening PNR page on your computer…";return}
      if(d.jact==="del")await API.post(`/api/journeys/${d.jid}`,null,true,"DELETE")}catch(err){t.textContent=err.message;return}return render()}
+  if(d.nact==="via"){try{await API.post(`/api/news/sources/${d.sid}`,{fetch_via:d.via},true,"PATCH")}catch(err){}return render()}
   if(d.nact){try{if(d.nact==="now")await API.post(`/api/news/sources/${d.sid}/fetch-now`,{});else await API.post(`/api/news/sources/${d.sid}`,{enabled:d.nact==="on"},true,"PATCH")}catch(err){}return render()}
   if(d.addsrc){try{await API.post("/api/news/sources",{kind:"web",url:d.addsrc,name:d.name});}catch(err){}return render()}
   if(t.id==="dgSend"){try{await API.post("/api/digest/send-now",{});t.textContent="Sent"}catch(err){t.textContent=err.message}return}
@@ -749,6 +778,10 @@ document.addEventListener("click",async e=>{const t=e.target.closest("button,[da
   if(d.berth){S.vac.sel=S.vac.sel===d.berth?null:d.berth;return render()}
   if(d.ask)return ask(d.ask);
   if(d.themeSet){S.theme=d.themeSet;store.set("theme",S.theme);applyTheme();return render()}
+  if(IN_APP&&t.id==="phOpen"){RVAndroid.openAssistant();return}
+  if(IN_APP&&t.id==="phCheck"){RVAndroid.checkNow();toast("Checking what's due");return}
+  if(IN_APP&&t.id==="phBattery"){RVAndroid.askBatteryUnrestricted();return}
+  if(IN_APP&&t.id==="phNotif"){RVAndroid.askNotifications();return}
   if(t.id==="themeBtn"){const o=["system","light","dark"];S.theme=o[(o.indexOf(S.theme)+1)%3];store.set("theme",S.theme);applyTheme();if(S.view==="settings")render();return}
   if(d.task){try{if(d.act==="delete")await API.post(`/api/tasks/${d.task}`,null,true,"DELETE");else await API.post(`/api/tasks/${d.task}/${d.act}`,null)}catch(err){alertMsg(err.message)}return render()}
   if(t.id==="playBtn")return togglePlay();
@@ -762,6 +795,8 @@ document.addEventListener("change",e=>{const t=e.target;
   if(t.id==="nCat"){S.newsF.cat=t.value;render()}
   if(t.id==="vFrom"){S.vac.from=t.value;S.vac.sel=null;render()}
   if(t.id==="vCls"){S.vac.cls=t.value;S.vac.sel=null;render()}
+  if(t.id==="phKeep"&&IN_APP){RVAndroid.setKeepRunning(t.checked);toast(t.checked?"Keeps running in the background":"Background checks every ~15 min");return}
+  if(t.id==="phAssist"&&IN_APP){RVAndroid.setAssistantOn(t.checked);return}
   if(t.id==="lowbw"){S.lowbw=t.checked;store.set("lowbw",S.lowbw);applyTheme();restartPoll()}
   if(t.id==="scrub"){S.frame=+t.value;$("#scrubT").textContent=hm(API.now());tickClock();render()}});
 document.addEventListener("input",e=>{if(e.target.id==="scrub"){S.frame=+e.target.value;$("#scrubT").textContent=hm(API.now());tickClock();render()}});

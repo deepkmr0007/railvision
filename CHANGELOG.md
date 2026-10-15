@@ -1,5 +1,24 @@
 # Changelog
 
+## 2.4.0 — 15 Oct 2026
+* **Android app (APK)**, built by GitHub Actions and published as a GitHub Release on every push.
+  * The Python engine runs inside the app (Chaquopy, Python 3.12), on 127.0.0.1 only; data stays in app storage.
+  * Built-in browser assistant: the app's own WebView with `rv_driver.js`, the same recipes, pacing (≥20 s, 400 pages/day),
+    and CAPTCHA/login hand-over (a notification opens the assistant browser so you can finish the step).
+  * Android notifications for all alerts; a check every 15 min with the app closed; optional *Keep running* service;
+    restored after a reboot or an update.
+  * Dashboard: *Settings → Phone app* (assistant on/off, keep running, battery, notifications, open assistant browser).
+* `railvision/mobile.py` entry point; `RAILVISION_WEB_DIR` override.
+* 7 new tests drive the phone driver in Chromium with the app's job loop against all mock sites (153 total).
+
+## 2.3.0 — 15 Oct 2026
+* **Official railway websites**: press-release pages of all 16 zones built in; menus filtered out; each new notice opened
+  and read (HTML or PDF via pypdf) so train numbers inside notices trigger alerts; zones of your trips/stations auto-follow.
+* Pages whose robots.txt refuses automated readers can be read by your browser assistant instead (per source switch).
+* Browser assistant: new `web_page` recipe (pages and PDFs), links captured; detail jobs queued after each list check.
+* Database migration for existing installs; station → zone map; Announcements tab shows the notice text.
+* 146 automated tests.
+
 ## 2.2.0 — 15 Oct 2026
 * **My Journeys**: trips with heads-up, chart-time, leave-home (live delay), wake-up and arrived reminders; auto watch list;
   PNR status via the browser assistant (CAPTCHA typed by you) with change alerts; `.ics` calendar export.

@@ -34,7 +34,7 @@ from ..services.store import Store
 from ..services.tracker import TaskError, TrackingEngine
 from ..services.wa_bot import WhatsAppBot
 
-WEB_DIR = Path(__file__).resolve().parents[2] / "web"
+WEB_DIR = Path(os.environ.get("RAILVISION_WEB_DIR") or Path(__file__).resolve().parents[2] / "web")   # the phone app sets this
 MAX_BODY = 256 * 1024
 SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer", "X-Frame-Options": "DENY",
@@ -110,6 +110,7 @@ class App:
         self.digest = DigestService(self.store, self.dispatcher, self.news, self.journeys, self.assist, clock)
         if self.assist:
             self.assist.news = self.news
+            self.news.assist = self.assist
         self.news_enabled = os.environ.get("RAILVISION_NEWS", "true" if self.mode == "live" else "false").lower() == "true"
         self.chat = ChatEngine(self.tracker, self.registry, self.store, LLMIntentParser(), assist=self.assist)
         self.chat.news, self.chat.journeys = self.news, self.journeys

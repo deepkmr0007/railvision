@@ -1,0 +1,152 @@
+name: Android APK
+
+on:
+  push:
+    branches: ["main", "claude/**"]
+    paths: ["android/**", "railvision/**", "web/**", ".github/workflows/android.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    outputs:
+      tag: ${{ steps.rel.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # Chaquopy compiles the app's Python with the same Python version the phone runs (3.12).
+      - uses: actions/setup-python@v5
+        id: py
+        with:
+          python-version: "3.12"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.10.2"
+
+      - name: Signing key (repository secret if set, else the public build key)
+        env:
+          KEYSTORE_B64: ${{ secrets.RV_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.p12"
+            echo "RV_KEYSTORE_FILE=$RUNNER_TEMP/release.p12" >> "$GITHUB_ENV"
+            echo "Using the private release key from secrets."
+          else
+            echo "Using android/app/railvision-public.p12."
+          fi
+
+      - name: Build the APK
+        working-directory: android
+        env:
+          RV_BUILD_PYTHON: ${{ steps.py.outputs.python-path }}
+          RV_KEYSTORE_PASSWORD: ${{ secrets.RV_KEYSTORE_PASSWORD }}
+          RV_KEY_ALIAS: ${{ secrets.RV_KEY_ALIAS }}
+          RV_KEY_PASSWORD: ${{ secrets.RV_KEY_PASSWORD }}
+        run: |
+          # empty secrets must not override the defaults in app/build.gradle.kts
+          [ -z "$RV_KEYSTORE_PASSWORD" ] && unset RV_KEYSTORE_PASSWORD
+          [ -z "$RV_KEY_ALIAS" ] && unset RV_KEY_ALIAS
+          [ -z "$RV_KEY_PASSWORD" ] && unset RV_KEY_PASSWORD
+          gradle --no-daemon --stacktrace assembleRelease
+
+      - name: Name and check the APK
+        id: out
+        run: |
+          V=$(python -c "import re;print(re.search(r'__version__ = \"(.+)\"', open('railvision/__init__.py').read()).group(1))")
+          mkdir -p out
+          cp android/app/build/outputs/apk/release/app-release.apk "out/RailVision-$V.apk"
+          cp android/app/build/outputs/apk/release/app-release.apk out/RailVision.apk
+          (cd out && sha256sum RailVision-$V.apk > RailVision-$V.apk.sha256)
+          ls -la out
+          BT=$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)
+          "$ANDROID_HOME/build-tools/$BT/apksigner" verify --print-certs out/RailVision.apk | head -5
+          "$ANDROID_HOME/build-tools/$BT/aapt2" dump badging out/RailVision.apk | head -3
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RailVision-${{ steps.out.outputs.version }}-apk
+          path: out/*
+
+      - name: Publish a GitHub Release
+        id: rel
+        env:
+          GH_TOKEN: ${{ github.token }}
+          V: ${{ steps.out.outputs.version }}
+        run: |
+          TAG="android-v$V-b$GITHUB_RUN_NUMBER"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          cat > notes.md <<EOF
+          **RAILVISION AI $V for Android** (built from \`${GITHUB_SHA::7}\` on \`$GITHUB_REF_NAME\`)
+
+          **Install:** on your Android phone (8.0 or newer) open this page, tap **RailVision.apk**, then open the downloaded file.
+          Android asks once to allow installs from your browser: *Settings → Install unknown apps → your browser → Allow*.
+
+          Direct link that always gives the newest build: https://github.com/$GITHUB_REPOSITORY/releases/latest/download/RailVision.apk
+
+          SHA-256: \`$(cut -d' ' -f1 out/RailVision-$V.apk.sha256)\`
+
+          Not on the Play Store. Signed with the project's public build key, so newer builds install over older ones.
+          EOF
+          gh release create "$TAG" out/RailVision.apk "out/RailVision-$V.apk" "out/RailVision-$V.apk.sha256" \
+            --target "$GITHUB_SHA" --title "RAILVISION AI $V (Android, build $GITHUB_RUN_NUMBER)" --notes-file notes.md --latest
+
+  # Installs the APK on an Android 14 emulator, starts it, and lets the in-app assistant read the mock sites.
+  smoke:
+    needs: apk
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Run the app in an emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: python android/ci/smoke.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: emulator-smoke-test
+          path: smoke/
+      - name: Attach the emulator screenshots and results to the release
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.apk.outputs.tag }}
+        run: |
+          cd smoke || exit 0
+          for f in *.png; do [ -f "$f" ] && mv "$f" "emulator-$f"; done
+          [ -f results.json ] && mv results.json emulator-results.json
+          [ -f logcat_app.txt ] && mv logcat_app.txt emulator-log.txt
+          ls -la
+          gh release upload "$TAG" emulator-* --clobber --repo "$GITHUB_REPOSITORY"
