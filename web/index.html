@@ -83,6 +83,7 @@ main .wrap{padding-block:22px 60px}
 @media (max-width:900px){.two{grid-template-columns:minmax(0,1fr)}}
 .panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px;min-width:0}
 .panel.flat{box-shadow:none}
+.col{display:grid;gap:14px;min-width:0;align-content:start}
 .panel h3{margin-bottom:10px}
 .lede{max-width:68ch;color:var(--muted);margin:6px 0 0}
 
@@ -221,11 +222,11 @@ const hm=iso=>iso?String(iso).slice(11,16):"—";
 const store={get(k,d){try{const v=localStorage.getItem("rv_"+k);return v===null?d:JSON.parse(v)}catch(e){return d}},
              set(k,v){try{localStorage.setItem("rv_"+k,JSON.stringify(v))}catch(e){}}};
 
-const VIEWS=[["overview","Overview"],["train","Live train"],["crossing","Crossing monitor"],["station","Station board"],
+const VIEWS=[["overview","Overview"],["watch","Watch list"],["train","Live train"],["crossing","Crossing monitor"],["station","Station board"],
   ["vacancy","Chart vacancy"],["alerts","Tracking & alerts"],["assistant","Assistant"],["sources","Data sources"],["settings","Settings"]];
 const S={view:"overview",train:store.get("train","90001"),station:store.get("cstation","RE"),board:"AWR",
   vac:{from:"JP",cls:"3A",sel:null},frame:0,token:store.get("token",null),mode:"offline",serverMode:null,
-  chat:[],cache:{},playing:null,lowbw:store.get("lowbw",false),theme:store.get("theme","system"),saved:store.get("saved",[])};
+  chat:[],cache:{},playing:null,dates:store.get("dates",{}),assistOn:false,capSel:null,shots:{},lowbw:store.get("lowbw",false),theme:store.get("theme","system"),saved:store.get("saved",[])};
 
 /* ---------------- data adapter: offline replay snapshot or live server ---------------- */
 const API={
@@ -240,10 +241,11 @@ const API={
     const r=await fetch(p,{method,headers:h,body:b?JSON.stringify(b):undefined});const j=await r.json().catch(()=>({}));if(!r.ok)throw Object.assign(new Error(j.error||("HTTP "+r.status)),{data:j});return j},
   frame(){return RV_SNAPSHOT.frames[S.frame]},
   now(){return S.mode==="snapshot"?this.frame().t:null},
-  trains(){if(S.mode==="snapshot")return Object.keys(RV_SNAPSHOT.routes);return Array.from(new Set([...(S.serverMode==="demo"?["90001","90002","90003","90004"]:[]),...S.saved]))},
-  async route(no){if(S.mode==="snapshot")return RV_SNAPSHOT.routes[no];const k="route"+no;if(!S.cache[k])S.cache[k]=await this.get(`/api/trains/${no}/route`);return S.cache[k]},
+  trains(){if(S.mode==="snapshot")return Object.keys(RV_SNAPSHOT.routes);return Array.from(new Set([...(S.serverMode==="demo"?["90001","90002","90003","90004"]:[]),...Object.keys(S.dates),...S.saved]))},
+  dq(no,sep){const d=S.dates[no];return d?`${sep}date=${d}`:""},
+  async route(no){if(S.mode==="snapshot")return RV_SNAPSHOT.routes[no];const k="route"+no+(S.dates[no]||"");if(!S.cache[k])S.cache[k]=await this.get(`/api/trains/${no}/route`+this.dq(no,"?"));setTimeout(()=>{delete S.cache[k]},60000);return S.cache[k]},
   async status(no,station){if(S.mode==="snapshot"){const f=this.frame().trains[no];return {status:f.status,crossing:station?f.crossings[station]:null}}
-    return this.get(`/api/trains/${no}/status`+(station?`?station=${encodeURIComponent(station)}`:""))},
+    return this.get(`/api/trains/${no}/status?x=1`+(station?`&station=${encodeURIComponent(station)}`:"")+this.dq(no,"&"))},
   async crossings(no){if(S.mode==="snapshot")return this.frame().trains[no].crossings;return null},
   history(no,code){if(S.mode!=="snapshot")return this.get(`/api/trains/${no}/passage-history?station=${code}`,true).then(r=>r.history.map(h=>({t:h.created_at,c:h})));
     const out=[];let last=null;for(const f of RV_SNAPSHOT.frames.slice(0,S.frame+1)){const c=f.trains[no].crossings[code];const sig=[c.event_class,c.verification,c.crossed,c.event_time,c.est_central].join("|");if(sig!==last){out.push({t:f.t,c});last=sig}}return Promise.resolve(out)},
@@ -254,7 +256,13 @@ const API={
   async notifications(){if(S.mode==="snapshot"){const t=this.now();return RV_SNAPSHOT.notifications.filter(n=>n.at<=t).slice().reverse()}
     const r=await this.get("/api/notifications",true);return r.items.map(n=>({...n,at:n.created_at}))},
   async tasks(){if(S.mode==="snapshot")return this.frame().tasks;return (await this.get("/api/tasks",true)).tasks},
-  between(){return S.mode==="snapshot"?RV_SNAPSHOT.between:null}
+  between(){return S.mode==="snapshot"?RV_SNAPSHOT.between:null},
+  /* browser assistant */
+  async assist(){if(S.mode==="snapshot")return RV_SNAPSHOT.assist||null;if(S.mode!=="server")return null;
+    try{const r=await this.get("/api/assist/status",true);S.assistOn=true;r.watch.forEach(w=>{S.dates[w.train]=w.start_date});store.set("dates",S.dates);return r}catch(e){S.assistOn=false;return null}},
+  async captures(wid){if(S.mode==="snapshot")return (RV_SNAPSHOT.assist?.captures||[]).filter(c=>!wid||c.watch_id===wid);return (await this.get("/api/assist/captures?limit=30"+(wid?"&watch_id="+wid:""),true)).items},
+  async shot(id){if(S.shots[id])return S.shots[id];if(S.mode==="snapshot"){return S.shots[id]=(RV_SNAPSHOT.assist?.shots||{})[id]||null}
+    const r=await fetch(`/api/assist/captures/${id}/screenshot`,{headers:{Authorization:"Bearer "+S.token}});if(!r.ok)return null;return S.shots[id]=URL.createObjectURL(await r.blob())}
 };
 
 /* ---------------- small renderers ---------------- */
@@ -496,6 +504,8 @@ function vSettings(){
   const live=S.mode==="server";
   return `<section class="view"><div><div class="eyebrow">Settings</div><h2>Preferences</h2></div>
    <div class="grid">
+    ${S.mode==="server"&&S.serverMode==="live"?`<div class="panel"><h3>Sign in</h3><p class="muted" style="font-size:.86rem;margin-top:0">${S.token?"This browser is signed in.":"Paste the access token from <span class='mono'>assist_data/token.txt</span>, or open the link the launcher printed."}</p>
+      <form id="tokForm" class="row" style="gap:6px"><label for="tokIn" class="muted" style="position:absolute;left:-9999px">Access token</label><input id="tokIn" class="mono" placeholder="rv_…" autocomplete="off" style="flex:1;min-width:0;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px"><button class="btn" type="submit">Save</button></form></div>`:""}
     <div class="panel"><h3>Appearance</h3><div class="seg" role="group" aria-label="Theme">${["system","light","dark"].map(t=>`<button type="button" data-theme-set="${t}" aria-pressed="${S.theme===t}">${t[0].toUpperCase()+t.slice(1)}</button>`).join("")}</div></div>
     <div class="panel"><h3>Low-bandwidth mode</h3><p class="muted" style="font-size:.86rem;margin-top:0">Hides the map and slows refresh to every 2 minutes.</p><label class="row" style="gap:8px"><input type="checkbox" id="lowbw" ${S.lowbw?"checked":""}> Use low-bandwidth mode</label></div>
     <div class="panel"><h3>Browser notifications</h3><p class="muted" style="font-size:.86rem;margin-top:0">Show alerts as system notifications while this page is open.</p><button class="btn ghost" type="button" id="notifBtn" ${live?"":"disabled"}>Allow notifications</button> <span id="notifMsg" class="muted" style="font-size:.84rem"></span></div>
@@ -503,8 +513,77 @@ function vSettings(){
     <div class="panel"><h3>About this data</h3><p class="muted" style="font-size:.86rem;margin:0">Mode: <b>${esc(S.mode==="snapshot"?"offline demo replay":S.mode==="server"?("server · "+S.serverMode):"no server reachable")}</b>. Demo data is synthetic and always labelled. Live mode refuses demo data entirely.</p></div>
    </div></section>`}
 
+
+/* ---------------- watch list (browser assistant) ---------------- */
+const CAP_CHIP={ok:["Read OK","c-ok"],no_result:["No result","c-amber"],captcha:["CAPTCHA — needs you","c-bad"],blocked:["Site refused","c-bad"],
+  login:["Login asked","c-bad"],recipe_failed:["Needs teaching","c-amber"],error:["Error","c-bad"]};
+const capChip=s=>{const [l,c]=CAP_CHIP[s]||["Waiting","c-nv"];return `<span class="chip ${c}">${esc(l)}</span>`};
+function ago(iso){if(!iso)return "never";const now=S.mode==="snapshot"?Date.parse(RV_SNAPSHOT.assist.now):Date.now();const m=Math.round((now-Date.parse(iso))/6e4);return m<1?"just now":m<60?m+" min ago":Math.round(m/60)+" h ago"}
+function istDate(off){const d=new Date(Date.now()+5.5*36e5+off*864e5);return d.toISOString().slice(0,10)}
+function agentCard(a){const ag=a.agent||{};const st=ag.online?(ag.state==="paused"?["Paused","c-amber"]:ag.state==="needs_you"?["Needs you","c-bad"]:["Online","c-ok"]):["Offline","c-nv"];
+  return `<div class="panel" style="display:grid;gap:8px"><div class="row" style="justify-content:space-between"><h3 style="margin:0">Browser assistant</h3><span class="chip ${st[1]}">${st[0]}</span></div>
+   <p class="muted" style="margin:0;font-size:.86rem">Runs on your computer and opens the official pages in a normal browser window, one train at a time. It never solves CAPTCHAs: if a site asks for one, the window is handed to you.</p>
+   <dl class="kv"><dt>Last contact</dt><dd>${esc(ago(ag.last_seen))}</dd>${ag.reason?`<dt>Note</dt><dd>${esc(ag.reason)}</dd>`:""}<dt>Site health</dt><dd>${esc((a.health||{}).status||"—")}</dd></dl>
+   ${ag.online?"":`<div class="banner">Start it on your computer: <span class="mono">start.bat</span> (Windows) or <span class="mono">./start.sh</span> (Mac/Linux). It signs this page in and keeps checking while it runs.</div>`}</div>`}
+function recipeCard(a){const r=a.recipes||{};const row=(k,label)=>{const x=r[k]||{};return `<div class="row" style="justify-content:space-between;border-top:1px solid var(--line);padding:6px 0;gap:8px">
+   <span>${label}</span><span class="row" style="gap:6px"><span class="chip ${x.mode==="recorded"?"c-acc":"c-nv"}">${x.mode==="recorded"?x.steps+" recorded steps":"automatic"}</span><span class="chip ${x.verified?"c-ok":"c-amber"}">${x.verified?"verified":"not yet verified"}</span></span></div>`};
+  return `<div class="panel"><h3>How pages are opened</h3>${row("ntes_status","Running status (NTES)")}${row("irctc_berth","Vacant berths (IRCTC charts)")}${row("ntes_search","Train name search")}
+   <details style="margin-top:8px"><summary class="muted" style="cursor:pointer;font-size:.86rem">If a check says "Needs teaching"</summary>
+   <p style="font-size:.85rem">Record the steps once by doing the search yourself. Run this on your computer, use any real train and its start date, then press <b>Save recipe</b> in the window:</p>
+   <pre class="mono" style="white-space:pre-wrap;background:var(--sunk);padding:8px;border-radius:6px;font-size:.78rem">python -m railvision.assist teach ntes_status --train 12951 --date ${istDate(0)} --server http://127.0.0.1:8000 --token YOUR_TOKEN
+python -m railvision.assist teach irctc_berth --train 12951 --date ${istDate(0)} --station NDLS --cls 3A --server http://127.0.0.1:8000 --token YOUR_TOKEN</pre>
+   <p class="muted" style="font-size:.8rem;margin:0">Your token is in <span class="mono">assist_data/token.txt</span>.</p></details></div>`}
+function watchRow(w){const cfg=[w.ref_station?`watch ${w.ref_station}${w.end_station?" → "+w.end_station:""}`:"",...(w.berth_checks||[]).map(b=>`berths ${b.class} from ${b.station}`)].filter(Boolean).join(" · ");
+  const live=S.mode==="server";
+  return `<div class="note" style="gap:8px"><div class="row" style="justify-content:space-between;gap:8px">
+     <div class="row" style="gap:10px;align-items:baseline"><span class="tno" style="font-size:1.7rem">${esc(w.train)}</span><span class="muted mono" style="font-size:.8rem">start ${esc(w.start_date)}</span>${w.active?"":'<span class="chip c-nv">Paused</span>'}</div>
+     ${capChip(w.last_status)}</div>
+   <div style="font-size:.92rem;min-width:0;overflow-wrap:anywhere">${esc(w.last_headline||"Not checked yet")}</div>
+   <div class="muted" style="font-size:.8rem">${cfg?esc(cfg)+" · ":""}every ${w.interval_min} min · last check ${esc(ago(w.last_fetch_at))}${w.next_due_at&&w.active?` · next ${hm(w.next_due_at)}`:""}${w.last_reason&&w.last_status==="ok"?` · ${esc(w.last_reason)}`:""}</div>
+   <div class="row" style="gap:6px"><button class="btn ghost" data-wview="${w.id}">Open page capture</button>${live?`<button class="btn ghost" data-open="${w.train}">Live view</button>`:""}
+    ${live?`<button class="btn ghost" data-wact="now" data-wid="${w.id}">Check now</button><button class="btn ghost" data-wact="${w.active?"pause":"resume"}" data-wid="${w.id}">${w.active?"Pause":"Resume"}</button><button class="btn ghost" data-wact="del" data-wid="${w.id}">Remove</button>`:""}</div></div>`}
+async function capturePanel(){if(!S.capSel)return "";const caps=await API.captures(S.capSel).catch(()=>[]);if(!caps.length)return `<div class="panel"><h3>Page captures</h3><p class="empty">No captures yet for this train.</p></div>`;
+  const c=caps.find(x=>x.kind==="status")||caps[0];const url=c.has_shot?await API.shot(c.id):null;const p=c.parse||{};const v=p.vacancy;
+  const berth=caps.find(x=>x.kind==="berth"&&x.status==="ok");const bv=berth&&berth.parse.vacancy;
+  return `<div class="panel" style="display:grid;gap:10px"><div class="row" style="justify-content:space-between"><h3 style="margin:0">Latest official page · ${esc(c.vars.train||c.vars.query||"")}</h3><button class="iconbtn" data-wview="">Close</button></div>
+   <div class="row" style="gap:6px">${capChip(c.status)}<span class="chip c-acc">Read confidence ${Math.round((c.confidence||0)*100)}%</span><span class="fresh">captured ${hm(c.finished_at)} · ${esc(c.title||"")}</span></div>
+   ${c.reason?`<div class="warn">${esc(c.reason)}</div>`:""}${(p.issues||[]).map(i=>`<div class="warn">${esc(i)}</div>`).join("")}
+   <dl class="kv"><dt>Page says</dt><dd>${esc(p.headline||"—")}</dd><dt>Stations read</dt><dd>${p.stations_found??"—"}</dd><dt>Source updated</dt><dd>${p.last_updated?hm(p.last_updated):"not shown on page"}</dd><dt>Parser</dt><dd class="mono">${esc(p.parser||"—")}</dd></dl>
+   ${bv?`<div class="panel flat" style="background:var(--sunk)"><b>Vacant berths · ${esc(berth.vars.class)} from ${esc(berth.vars.station)}</b><div class="row" style="gap:6px;margin-top:6px"><span class="chip c-ok">${bv.total_vacant} vacant entries</span><span class="chip c-acc">${bv.from_boarding} from ${esc(berth.vars.station)}</span>${Object.entries(bv.by_coach||{}).map(([k,n])=>`<span class="chip c-nv">${esc(k)}: ${n}</span>`).join("")}</div>
+     <div class="tbl" style="margin-top:8px;max-height:240px;overflow:auto"><table><thead><tr><th>Coach</th><th class="n">Berth</th><th>Type</th><th>From</th><th>To</th></tr></thead><tbody>${(bv.vacant||[]).map(b=>`<tr><td class="mono">${esc(b.coach)}</td><td class="n">${esc(b.berth)}</td><td>${esc(b.type||"")}</td><td class="mono">${esc(b.from||"")}</td><td class="mono">${esc(b.to||"")}</td></tr>`).join("")}</tbody></table></div>
+     <p class="muted" style="font-size:.8rem;margin:6px 0 0">Chart vacancy is not a bookable seat or a guaranteed empty berth. Book only through official IRCTC channels.</p></div>`:""}
+   ${url?`<div><div class="eyebrow">Screenshot of the page the assistant read</div><img src="${url}" alt="Screenshot of the official page" style="width:100%;border:1px solid var(--line);border-radius:8px;margin-top:6px"></div>`:""}
+   <details><summary class="muted" style="cursor:pointer;font-size:.86rem">History (${caps.length})</summary><div class="feed" style="margin-top:8px">${caps.map(x=>`<div class="row" style="gap:8px;font-size:.84rem"><span class="mono">${hm(x.finished_at)}</span><span class="chip c-nv">${esc(x.kind)}</span>${capChip(x.status)}<span>${esc((x.parse||{}).headline||x.reason||"")}</span></div>`).join("")}</div></details></div>`}
+async function vWatch(){
+  const a=await API.assist();
+  if(!a)return `<section class="view"><div><div class="eyebrow">Official pages</div><h2>Watch list</h2></div>
+    <div class="banner"><b>The browser assistant isn't running.</b> On your computer, open the RAILVISION folder and run <span class="mono">start.bat</span> (Windows) or <span class="mono">./start.sh</span> (Mac/Linux). It starts the server, signs this page in, and opens a browser window that checks your trains on the official NTES and IRCTC pages.</div></section>`;
+  const live=S.mode==="server";const ws=a.watch||[];const active=ws.filter(w=>w.active).length;
+  const form=live?`<form id="watchForm" class="panel" style="display:grid;gap:12px"><div class="row" style="justify-content:space-between"><h3 style="margin:0">Add a train</h3><span class="muted" style="font-size:.84rem">${active} of 10 in use</span></div>
+    <div class="row"><label class="field">Train number<input id="wTrain" class="mono" inputmode="numeric" maxlength="5" required style="width:7em"></label>
+    <label class="field">Start date (from origin)<input id="wDate" type="date" value="${istDate(0)}" min="${istDate(-4)}" max="${istDate(3)}"></label>
+    <label class="field">Check every<select id="wInt">${[5,10,15,20,30,60].map(m=>`<option value="${m}" ${m===15?"selected":""}>${m} min</option>`).join("")}</select></label></div>
+    <div class="seg" role="group" aria-label="Start date shortcuts"><button type="button" data-wdate="-1">Started yesterday</button><button type="button" data-wdate="0">Today</button><button type="button" data-wdate="1">Tomorrow</button></div>
+    <div class="row"><label class="field">Watch station (optional)<input id="wRef" class="mono" maxlength="5" placeholder="e.g. RE" style="width:7em"></label>
+    <label class="field">Until (optional)<input id="wEnd" class="mono" maxlength="5" placeholder="e.g. DLI" style="width:7em"></label>
+    <label class="field">Updates<select id="wNotify"><option value="on_change">When something changes</option><option value="every">Every check</option><option value="alerts_only">Alerts only</option></select></label></div>
+    <fieldset style="border:1px dashed var(--line);border-radius:8px;padding:10px;margin:0;display:grid;gap:8px"><legend class="eyebrow">Vacant berth check (optional)</legend>
+     <div class="row"><label class="field">Boarding station<input id="wBStn" class="mono" maxlength="5" placeholder="e.g. NDLS" style="width:7em"></label>
+     <label class="field">Class<select id="wBCls"><option value="">No berth check</option>${["1A","2A","3A","3E","SL","CC","EC","2S"].map(c=>`<option>${c}</option>`).join("")}</select></label>
+     <label class="field">Journey date<input id="wBDate" type="date" value="${istDate(0)}"></label></div>
+     <p class="muted" style="margin:0;font-size:.8rem">Use the journey date printed on your ticket. Charts appear on IRCTC only after they're prepared, usually about 4 hours before the train leaves its origin.</p></fieldset>
+    <fieldset style="border:0;padding:0;margin:0;display:flex;flex-wrap:wrap;gap:12px"><legend class="eyebrow" style="margin-bottom:6px">Send updates to</legend>
+     ${["app","whatsapp","telegram","email","browser"].map(d=>`<label class="row" style="gap:6px;font-size:.86rem"><input type="checkbox" name="wdest" value="${d}" ${d==="app"?"checked disabled":""}> ${DEST_LABEL[d]}</label>`).join("")}</fieldset>
+    <div class="row"><button class="btn" type="submit" ${active>=10?"disabled":""}>Add to watch list</button><span id="wMsg" class="muted" style="font-size:.86rem"></span></div></form>`
+   :`<div class="banner demo"><b>Offline replay of a real test run.</b> The browser assistant checked 10 trains, one at a time, plus one berth chart, on a <b>local mock site</b> (not the real NTES/IRCTC pages). Everything shown was produced by that run.</div>`;
+  const search=live?`<form id="searchForm" class="panel row" style="gap:10px"><label class="field" style="flex:1;min-width:200px">Find a train by name on the official site<input id="sQ" placeholder="e.g. Rajdhani, Shatabdi, Ashram"></label><button class="btn ghost" type="submit">Search</button><span id="sMsg" class="muted" style="font-size:.84rem"></span></form>`:"";
+  return `<section class="view"><div><div class="eyebrow">Official pages · checked one train at a time</div><h2>Watch list</h2>
+   <p class="lede">Add up to 10 trains with their start date. The assistant opens the official page for each in turn, reads it, and updates the dashboard, alerts and WhatsApp.</p></div>
+   <div class="two"><div class="col">${form}<div class="panel"><h3>Trains on watch</h3><div class="feed">${ws.length?ws.map(watchRow).join(""):'<p class="empty">Nothing on the watch list yet. Add a train above.</p>'}</div></div></div>
+   <div class="col">${await capturePanel()}${agentCard(a)}${search}${recipeCard(a)}</div></div></section>`}
+
 /* ---------------- shell ---------------- */
-const RENDER={overview:vOverview,train:vTrain,crossing:vCrossing,station:vStation,vacancy:vVacancy,alerts:vAlerts,assistant:vAssistant,sources:vSources,settings:vSettings};
+const RENDER={overview:vOverview,watch:vWatch,train:vTrain,crossing:vCrossing,station:vStation,vacancy:vVacancy,alerts:vAlerts,assistant:vAssistant,sources:vSources,settings:vSettings};
 let renderSeq=0;
 async function render(){const seq=++renderSeq;const m=$("#main");
   try{const html=await RENDER[S.view]();if(seq!==renderSeq)return;
@@ -513,8 +592,9 @@ async function render(){const seq=++renderSeq;const m=$("#main");
     const log=$("#chatLog");if(log)log.scrollTop=log.scrollHeight;
   }catch(e){m.innerHTML=`<section class="view">${errBox(e)}</section>`}}
 function tabs(){$("#tabs").innerHTML=VIEWS.map(([k,l])=>`<button class="tab" role="tab" type="button" data-view="${k}" aria-selected="${k===S.view}"><i class="asp"></i>${l}</button>`).join("")}
-function go(v){S.view=v;tabs();render();try{history.replaceState(null,"","#"+v)}catch(e){}}
+function go(v){S.view=v;tabs();replayBar();render();try{history.replaceState(null,"","#"+v)}catch(e){}}
 
+function replayBar(){const r=$("#replay");if(r)r.hidden=!(S.mode==="snapshot"&&S.view!=="watch")}
 function applyTheme(){const r=document.documentElement;if(S.theme==="system")r.removeAttribute("data-theme");else r.setAttribute("data-theme",S.theme);$("#themeBtn").textContent="Theme: "+S.theme;
   document.body.classList.toggle("lowbw",S.lowbw)}
 function tickClock(){const t=S.mode==="snapshot"?hm(API.now()):new Intl.DateTimeFormat("en-GB",{hour:"2-digit",minute:"2-digit",timeZone:"Asia/Kolkata"}).format(new Date());
@@ -533,6 +613,11 @@ async function ask(q){if(!q.trim())return;S.chat.push({me:true,text:q});
 
 document.addEventListener("click",async e=>{const t=e.target.closest("button,[data-open]");if(!t)return;const d=t.dataset;
   if(d.view)return go(d.view);
+  if("wview" in d){S.capSel=d.wview||null;return render()}
+  if(d.wdate!==undefined&&$("#wDate")){$("#wDate").value=istDate(+d.wdate);if($("#wBDate"))$("#wBDate").value=istDate(+d.wdate);return}
+  if(d.wact){try{if(d.wact==="now")await API.post(`/api/assist/watch/${d.wid}/check-now`,{});
+     else if(d.wact==="del")await API.post(`/api/assist/watch/${d.wid}`,null,true,"DELETE");
+     else await API.post(`/api/assist/watch/${d.wid}`,{active:d.wact==="resume"},true,"PATCH")}catch(err){}return render()}
   if(d.open){S.train=d.open;store.set("train",S.train);return go("train")}
   if(d.pick){S.train=d.no;store.set("train",S.train);return render()}
   if(d.go){const v=($("#"+d.go+"In")||{}).value||"";if(/^\d{5}$/.test(v)){S.train=v;store.set("train",v);if(!S.saved.includes(v)&&S.mode==="server"){S.saved.push(v);store.set("saved",S.saved)}render()}return}
@@ -557,6 +642,14 @@ document.addEventListener("change",e=>{const t=e.target;
   if(t.id==="scrub"){S.frame=+t.value;$("#scrubT").textContent=hm(API.now());tickClock();render()}});
 document.addEventListener("input",e=>{if(e.target.id==="scrub"){S.frame=+e.target.value;$("#scrubT").textContent=hm(API.now());tickClock();render()}});
 document.addEventListener("submit",async e=>{e.preventDefault();const f=e.target;
+  if(f.id==="watchForm"){const msg=$("#wMsg");const body={train:$("#wTrain").value.trim(),start_date:$("#wDate").value,interval_min:+$("#wInt").value,
+      ref_station:$("#wRef").value.trim().toUpperCase()||null,end_station:$("#wEnd").value.trim().toUpperCase()||null,notify:$("#wNotify").value,
+      destinations:["app",...[...f.querySelectorAll("input[name=wdest]:checked")].map(x=>x.value)]};
+    if($("#wBCls").value&&$("#wBStn").value.trim())body.berth_checks=[{station:$("#wBStn").value.trim().toUpperCase(),class:$("#wBCls").value,journey_date:$("#wBDate").value}];
+    try{const w=await API.post("/api/assist/watch",body);S.dates[w.train]=w.start_date;store.set("dates",S.dates);msg.textContent=`Added ${w.train}. The first check starts within a minute.`;setTimeout(render,600)}catch(err){msg.textContent=err.message}return}
+  if(f.id==="tokForm"){const v=$("#tokIn").value.trim();if(v){S.token=v;store.set("token",v);go("watch")}return}
+  if(f.id==="searchForm"){const q=$("#sQ").value.trim();if(q.length<3){$("#sMsg").textContent="Type at least 3 letters.";return}
+    try{await API.post("/api/assist/jobs",{kind:"search",vars:{query:q}});$("#sMsg").textContent="Searching… results arrive in Tracking & alerts."}catch(err){$("#sMsg").textContent=err.message}return}
   if(f.id==="chatForm"){const i=$("#chatIn");const q=i.value;i.value="";return ask(q)}
   if(f.id==="taskForm"&&S.mode==="server"){const dests=["app",...[...f.querySelectorAll("input[name=dest]:checked")].map(x=>x.value).filter(x=>x!=="app")];
     const body={train_number:$("#fTrain").value.trim(),reference_station:$("#fRef").value.trim().toUpperCase(),end_station:$("#fEnd").value.trim().toUpperCase()||null,
@@ -567,14 +660,19 @@ document.addEventListener("submit",async e=>{e.preventDefault();const f=e.target
 function togglePlay(){const b=$("#playBtn");if(S.playing){clearInterval(S.playing);S.playing=null;b.textContent="Play";return}
   b.textContent="Pause";S.playing=setInterval(()=>{if(S.frame>=RV_SNAPSHOT.frames.length-1){togglePlay();return}S.frame++;$("#scrub").value=S.frame;$("#scrubT").textContent=hm(API.now());tickClock();render()},1600)}
 
-let poll=null;function restartPoll(){clearInterval(poll);if(S.mode!=="server")return;poll=setInterval(()=>{if(!document.hidden&&["overview","train","crossing","alerts"].includes(S.view))render()},S.lowbw?120000:30000)}
+let poll=null;function restartPoll(){clearInterval(poll);if(S.mode!=="server")return;poll=setInterval(()=>{if(!document.hidden&&["overview","watch","train","crossing","alerts"].includes(S.view))render()},S.lowbw?120000:30000)}
 function sse(){if(S.mode!=="server"||!S.token||!("EventSource" in window))return;try{const es=new EventSource("/api/events?token="+encodeURIComponent(S.token));
   es.addEventListener("notification",ev=>{const d=JSON.parse(ev.data);if(window.Notification&&Notification.permission==="granted")new Notification(d.title,{body:d.short||""});if(["overview","alerts"].includes(S.view))render()})}catch(e){}}
 
 (async function boot(){
-  const h=(location.hash||"").slice(1);if(VIEWS.some(v=>v[0]===h))S.view=h;
+  let h=(location.hash||"").slice(1);
+  if(h.startsWith("token=")){S.token=decodeURIComponent(h.slice(6));store.set("token",S.token);h="watch";try{history.replaceState(null,"","#watch")}catch(e){}}
+  if(VIEWS.some(v=>v[0]===h))S.view=h;
   applyTheme();tabs();await API.init();
-  if(S.mode==="snapshot"){const r=$("#replay");r.hidden=false;const sc=$("#scrub");sc.max=RV_SNAPSHOT.frames.length-1;sc.value=S.frame;$("#scrubT").textContent=hm(API.now())}
+  if(S.mode==="snapshot"&&RV_SNAPSHOT.assist){if(!h)S.view="watch";tabs();const w=RV_SNAPSHOT.assist.watch[1]||RV_SNAPSHOT.assist.watch[0];if(w)S.capSel=w.id}
+  if(S.mode==="snapshot"){const r=$("#replay");replayBar();const sc=$("#scrub");sc.max=RV_SNAPSHOT.frames.length-1;sc.value=S.frame;$("#scrubT").textContent=hm(API.now())}
+  if(S.mode==="server"&&S.serverMode==="live"){const a=await API.assist();if(a&&a.watch.length&&!API.trains().includes(S.train))S.train=a.watch[0].train;
+    if(!S.token)S.view="settings"}
   await header();tickClock();setInterval(tickClock,15000);render();restartPoll();sse();
   if(S.mode==="server"&&"serviceWorker" in navigator){navigator.serviceWorker.register("sw.js").catch(()=>{})}
 })();

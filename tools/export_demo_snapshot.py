@@ -45,6 +45,72 @@ def slim_crossing(c: dict) -> dict:
     return {k: c[k] for k in keep}
 
 
+def assist_replay() -> dict | None:
+    """Run the REAL browser assistant (server + agent + Chromium) against the LOCAL MOCK site and keep
+    what the watch-list view needs. Skipped when Playwright is not installed."""
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        return None
+    import base64
+    import io
+    import os
+    import threading
+    from http.server import ThreadingHTTPServer
+    sys.path.insert(0, str(ROOT / "tests" / "mock_sites"))
+    from mock_server import TRAINS, make_server
+    from railvision.api.app import App
+    from railvision.api.server import make_handler
+    from railvision.assist.agent import Agent, Client, Pacer
+    from railvision.assist.recipes import DEFAULT_RECIPES
+    from railvision.core.timeutil import now_ist
+    mock = make_server(0)
+    mbase = f"http://127.0.0.1:{mock.server_address[1]}"
+    os.environ["RAILVISION_MODE"] = "live"
+    app = App(store=Store(), registry=ProviderRegistry("live", []), logger=lambda *_: None, assist=True)
+    os.environ["RAILVISION_MODE"] = "demo"
+    app.assist.pacing.update(min_gap_s=0.2, jitter_s=0.1)
+    uid, tok = app.store.create_user("replay")
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(app))
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    cl = Client(f"http://127.0.0.1:{srv.server_address[1]}", tok)
+    for name, path in (("ntes_status", "/ntes-a/"), ("irctc_berth", "/irctc/")):
+        cl.call("PUT", f"/api/assist/recipes/{name}", {**DEFAULT_RECIPES[name].to_dict(), "start_url": mbase + path})
+    today = now_ist().date().isoformat()
+    for i, t in enumerate(sorted(TRAINS)[:10]):
+        cl.call("POST", "/api/assist/watch", {"train": t, "start_date": today, "interval_min": 15 if i % 3 else 10,
+                                              "ref_station": "RE" if i == 0 else None, "end_station": "DLI" if i == 0 else None,
+                                              "berth_checks": [{"station": "AWR", "class": "3A"}] if i == 1 else []})
+    with sync_playwright() as pw:
+        b = pw.chromium.launch()
+        Agent(cl, b.new_context(), headed=False, log=lambda *_: None, pacer=Pacer(min_gap_s=0.2, jitter_s=0.1, floor_s=0.2)).round()
+        b.close()
+    status = cl.call("GET", "/api/assist/status")
+    caps = cl.call("GET", "/api/assist/captures?limit=40")["items"]
+    shots = {}
+    try:
+        from PIL import Image
+    except ImportError:
+        Image = None
+    for c in caps:
+        if not c["has_shot"]:
+            continue
+        raw = app.assist.screenshot(uid, c["id"])
+        if Image:
+            im = Image.open(io.BytesIO(raw)).convert("RGB")
+            im.thumbnail((900, 1400))
+            buf = io.BytesIO()
+            im.save(buf, "JPEG", quality=50, optimize=True)
+            raw = buf.getvalue()
+        shots[c["id"]] = "data:image/jpeg;base64," + base64.b64encode(raw).decode()
+    for w in status["watch"]:
+        w["train_name"] = TRAINS.get(w["train"])
+    srv.shutdown()
+    mock.shutdown()
+    status["agent"]["reason"] = "Local mock site (test run) — not the real NTES/IRCTC pages"
+    return {**status, "captures": caps, "shots": shots, "now": iso(now_ist()), "mock": True}
+
+
 def main():
     day = datetime(2026, 10, 14, tzinfo=IST)
     start, end, step = day.replace(hour=6, minute=15), day.replace(hour=12, minute=15), timedelta(minutes=15)
@@ -126,15 +192,20 @@ def main():
             "notifications": notifications, "chat": transcript,
             "sources": {"mode": "demo", "matrix": SOURCE_MATRIX, "health": reg.health(),
                         "destinations": disp.catalogue(), "checked": "2026-10-14"},
-            "between": prov.find_trains_between("JP", "DLI", day.date())}
+            "between": prov.find_trains_between("JP", "DLI", day.date()),
+            "assist": assist_replay()}
     data = json.dumps(snap, ensure_ascii=False, separators=(",", ":"), default=str)
     html = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
     marker = "/*RV_SNAPSHOT*/null"
     assert marker in html
-    out = ROOT / "dist" / "railvision_dashboard.html"
+    out = ROOT / "dist" / ("railvision_dashboard_v2_1.html" if snap["assist"] else "railvision_dashboard.html")
     out.parent.mkdir(exist_ok=True)
-    out.write_text(html.replace(marker, data.replace("</", "<\\/")), encoding="utf-8")
-    print(f"frames={len(frames)} notifications={len(notifications)} chat={len(transcript)} size={len(data)/1024:.0f} KB -> {out}")
+    page = html.replace(marker, data.replace("</", "<\\/"))
+    if snap["assist"]:
+        page = page.replace("<title>RAILVISION AI</title>", "<title>RAILVISION AI v2.1</title>", 1)
+    out.write_text(page, encoding="utf-8")
+    print(f"frames={len(frames)} notifications={len(notifications)} chat={len(transcript)} "
+          f"assist={'yes' if snap['assist'] else 'no (playwright missing)'} size={len(data)/1024:.0f} KB -> {out}")
 
 
 if __name__ == "__main__":
