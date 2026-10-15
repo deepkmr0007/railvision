@@ -34,7 +34,7 @@ from ..services.store import Store
 from ..services.tracker import TaskError, TrackingEngine
 from ..services.wa_bot import WhatsAppBot
 
-WEB_DIR = Path(__file__).resolve().parents[2] / "web"
+WEB_DIR = Path(os.environ.get("RAILVISION_WEB_DIR") or Path(__file__).resolve().parents[2] / "web")   # the phone app sets this
 MAX_BODY = 256 * 1024
 SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer", "X-Frame-Options": "DENY",
