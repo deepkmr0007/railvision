@@ -44,3 +44,20 @@ Errors: 400 bad input · 401 auth/signature · 404 not found or **MANUAL-LINK FA
 | GET | /api/assist/captures[?watch_id=] · /{id} · /{id}/screenshot | 🔒 |
 | GET · PUT | /api/assist/recipes · /api/assist/recipes/{name} | 🔒 TEACH upload (https only) |
 | GET · POST | /api/assist/jobs | 🔒 on-demand `status` / `search` / `berth` check |
+
+## Personal (v2.2)
+
+| Method | Path | Notes |
+|---|---|---|
+| GET · POST | /api/journeys | 🔒 trips (`train`, `start_date`, `board`, `dest`, `cls`, `pnr`, `buffer_min`, `alarm_min`, `berth_check`) |
+| GET · PATCH · DELETE | /api/journeys/{id} | 🔒 owner only |
+| POST | /api/journeys/{id}/check-pnr | 🔒 queues the PNR page on your computer (you type the CAPTCHA) |
+| GET | /api/journeys.ics · /api/journeys/{id}.ics | 🔒 calendar (`?token=` allowed for calendar apps) |
+| GET | /api/news?relevant=1&category=&q= | 🔒 announcements with your relevance score and reason |
+| GET · POST | /api/news/sources | 🔒 list / add RSS, web page or X handle |
+| PATCH · DELETE | /api/news/sources/{id} · POST …/fetch-now | 🔒 |
+| GET | /api/news/usage | 🔒 X posts read today and estimated cost |
+| GET · PATCH | /api/prefs | 🔒 digest time/destinations, zones, keywords, alert threshold |
+| GET · POST | /api/digest/preview · /api/digest/send-now | 🔒 |
+| GET | /api/stats/punctuality?train=&station= | 🔒 delay history from collected reports |
+| GET | /api/help | helplines and official links |

@@ -2,7 +2,8 @@
 
 Tags: 5-digit train numbers, stations (codes and names, English + Hindi), railway zones,
 and a category (cancellation, diversion, weather, special train, ...).
-Score: 1.0 your train · 0.8 your station with a disruption · 0.6 your station · 0.4 your zone
+Score: 1.0 your train · 0.8 your station with a disruption · 0.7 disruption in your station's city ·
+0.6 your station · 0.5 your station's city · 0.4 your zone
 with a disruption · else 0. Alerts go out at ≥ 0.8 by default (adjustable); the feed shows everything.
 """
 from __future__ import annotations
@@ -56,12 +57,18 @@ def tag(text: str, extra_station_codes: set[str] | None = None) -> dict:
                 ([s.name_hi] if s.name_hi else [])
         if any(n and re.search(r"(?<![\w])" + re.escape(n.lower()) + r"(?![\w])", low) for n in names):
             st.add(s.code)
+    # a shared city name ("Delhi", "Jaipur", "Mumbai") is a CITY mention: every station of that city
+    cities: set[str] = set()
+    for a, n in alias_count.items():
+        if n > 1 and len(a) >= 4 and re.search(r"(?<![\w])" + re.escape(a) + r"(?![\w])", low):
+            cities |= {s.code for s in stn.STATIONS.values() if a in (x.lower() for x in s.aliases)}
     codes = set(re.findall(r"\b([A-Z]{3,5})\b", t))
     for c in codes & (set(stn.STATIONS) | (extra_station_codes or set())):
         st.add(c)
     cats = [name for name, pat in CATEGORIES if re.search(pat, t, re.I)]
     zones = sorted({m.group(1).title() for m in ZONE_RE.finditer(t)})
-    return {"trains": trains, "stations": sorted(st), "categories": cats or ["general"], "zones": zones}
+    return {"trains": trains, "stations": sorted(st), "city_stations": sorted(cities - st), "categories": cats or ["general"],
+            "zones": zones}
 
 
 def score(tags: dict, interests: dict) -> tuple[float, str]:
@@ -75,6 +82,9 @@ def score(tags: dict, interests: dict) -> tuple[float, str]:
         return 0.8, f"disruption at your station {', '.join(sorted(st))}"
     if st:
         return 0.6, f"mentions your station {', '.join(sorted(st))}"
+    city = set(tags.get("city_stations", [])) & interests.get("stations", set())
+    if city:
+        return (0.7 if disrupt else 0.5), f"{'disruption ' if disrupt else ''}in your station's city ({', '.join(sorted(city))})"
     zn = set(tags.get("zones", [])) & interests.get("zones", set())
     if zn and disrupt:
         return 0.4, f"disruption in {', '.join(sorted(zn))} Railway"

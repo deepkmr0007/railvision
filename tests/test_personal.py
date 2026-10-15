@@ -102,7 +102,12 @@ class RelevanceAndParsingTests(unittest.TestCase):
         self.assertEqual(score(t, {"trains": set(), "stations": {"RE"}})[0], 0.8)
         self.assertEqual(score(tag("New lift at Rewari station"), {"stations": {"RE"}})[0], 0.6)
         self.assertEqual(score(t, {"trains": set(), "stations": set(), "zones": {"North Western"}})[0], 0.4)
-        self.assertEqual(score(tag("Mumbai suburban timetable"), {"stations": {"MMCT"}})[0], 0.0, "shared city names are not stations")
+        mt = tag("Mumbai suburban timetable")
+        self.assertNotIn("MMCT", mt["stations"], "a shared city name is not a station mention")
+        self.assertIn("MMCT", mt["city_stations"])
+        self.assertEqual(score(mt, {"stations": {"MMCT"}})[0], 0.5)
+        self.assertEqual(score(tag("Fog: trains in Delhi regulated tonight"), {"stations": {"DLI"}})[0], 0.7)
+        self.assertEqual(tag("Line block near Alwar: 90001 late")["trains"], ["90001"])
 
 
 class NewsServiceTests(unittest.TestCase):

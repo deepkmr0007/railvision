@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.2.0 — 15 Oct 2026
+* **My Journeys**: trips with heads-up, chart-time, leave-home (live delay), wake-up and arrived reminders; auto watch list;
+  PNR status via the browser assistant (CAPTCHA typed by you) with change alerts; `.ics` calendar export.
+* **Announcements hub**: PIB RSS (railway-filtered), official web pages (robots.txt, ETag, baseline), NTES
+  cancelled/rescheduled/diverted lists, X via the official API with a daily budget; tagging by train, station, city,
+  zone and topic; personal relevance score and alerts.
+* Delay history per train and station; once-a-day digest that only sends when something concerns you; helplines.
+* Chat: `PNR …`, `my trips`, `announcements` / `news for 12951`, `helpline`.
+* Dashboard: My Journeys, Announcements, Help tabs; digest and alert settings.
+* Fixes: stored times follow the app clock; train-number-only notices are no longer dropped by the railway filter.
+* 137 automated tests.
+
 ## 2.1.0 — 15 Oct 2026
 * **Browser assistant**: checks the official NTES running-status and IRCTC vacant-berth pages from your own computer,
   one train at a time, on your interval. Watch list of up to 10 trains, each with its start date.

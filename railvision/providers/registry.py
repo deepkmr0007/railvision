@@ -91,6 +91,31 @@ SOURCE_MATRIX = [
         "integration": "railvision/assist + services/assist_service.py", "url": NTES_URL,
     },
     {
+        "source": "PIB press releases RSS (pib.gov.in)", "status": "OFFICIAL (Press Information Bureau)",
+        "fields": "Title + link per release; all ministries mixed (no ministry field)", "coverage": "National",
+        "update_frequency": "As released; RAILVISION reads hourly", "auth": "None (public RSS)",
+        "terms": "RSS is published for automated readers; robots.txt is checked before fetching",
+        "cost_limits": "Free", "approval": VERIFIED_NOW, "url": "https://www.pib.gov.in/ViewRss.aspx",
+        "tests": "15 Oct 2026: feed structure checked (title + link only); parser, railway filter and alerts unit-tested with fixtures",
+        "integration": "news/service.py (pib_en, pib_hi)",
+    },
+    {
+        "source": "X (Twitter) — @RailMinIndia, @IRCTCofficial, @RailwaySeva, zonal accounts", "status": "OFFICIAL ACCOUNTS via OFFICIAL X API",
+        "fields": "Recent posts (replies and reposts excluded)", "coverage": "Whatever the accounts post",
+        "update_frequency": "Your interval (≥30 min)", "auth": "Your X developer bearer token",
+        "terms": "Official API only; no scraping of x.com", "cost_limits": "Pay-per-use: ≈$0.005 per post read, $0.010 per user lookup "
+        "(checked Oct 2026); daily post budget enforced (default 60 ≈ $0.30/day)", "approval": NEEDS_APPROVAL + " (your X developer account)",
+        "tests": "Client, since_id paging and budget stop unit-tested against a mock API; no live call (no key)",
+        "integration": "news/fetch.py XClient", "url": "https://docs.x.com/",
+    },
+    {
+        "source": "Official web pages you add (zonal railways, divisions, Railway Board notices)", "status": "OFFICIAL PAGES",
+        "fields": "New notice links on the page", "coverage": "Per page", "update_frequency": "Your interval (≥15 min)",
+        "auth": "None", "terms": "robots.txt respected (disallowed pages are skipped), conditional GET, clear User-Agent",
+        "cost_limits": "Free", "approval": VERIFIED_NOW, "url": None,
+        "tests": "Baseline/new-link detection, ETag 304, robots.txt refusal unit-tested", "integration": "news/fetch.py parse_web",
+    },
+    {
         "source": "Demo synthetic fixtures", "status": "INTERNAL / SYNTHETIC", "fields": "All modules (fake)",
         "coverage": "4 synthetic trains", "update_frequency": "Deterministic simulation", "auth": "-",
         "terms": "Never shown as live; refused in live mode", "cost_limits": "-", "approval": VERIFIED_NOW + " (DEMO ONLY)",

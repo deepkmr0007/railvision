@@ -82,6 +82,7 @@ class App:
         self.clock, self.log = clock, logger
         self.store = store or Store(os.environ.get("RAILVISION_DB", "railvision.db"),
                                     pepper=os.environ.get("RAILVISION_SECRET") or None)
+        self.store.clock = clock
         self.registry = registry or ProviderRegistry.from_env(clock=clock if clock is not now_ist else None)
         self.bus = EventBus()
         self.wa_cfg = WhatsAppConfig.from_env()

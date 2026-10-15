@@ -230,9 +230,9 @@ class NewsService:
         new = []
         for it in items:
             blob = f"{it.title} {it.text}"
-            if s["rail_filter"] and not is_railway(blob):
-                continue
             t = tag(blob)
+            if s["rail_filter"] and not (is_railway(blob) or t["trains"] or t["stations"]):
+                continue
             cur = self.store.x("""INSERT OR IGNORE INTO news_items(uid,source_id,title,text,url,author,published_at,fetched_at,trains,
                      stations,categories,zones,baseline,official) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                                (f"{s['id']}:{it.uid}", s["id"], it.title, it.text[:4000], it.url, it.author, it.published_at,
@@ -310,6 +310,7 @@ class NewsService:
         for r in rows:
             for k in ("trains", "stations", "categories", "zones"):
                 r[k] = json.loads(r[k] or "[]")
+            r["city_stations"] = tag(f"{r['title']} {r['text'] or ''}")["city_stations"]
             r["score"], r["why"] = score(r, ints)
             r["official"] = bool(r["official"])
             if category and category not in r["categories"]:

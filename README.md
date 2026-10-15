@@ -2,6 +2,17 @@
 
 Running status · **non-stop station crossing** · station boards · chart vacancy · persistent tracking with alerts · English/Hindi/Hinglish assistant · WhatsApp / Telegram / email / app delivery · premium command-center dashboard (installable PWA).
 
+## New in 2.2: built for your own trips
+
+* **My Journeys**: heads-up, chart-time, leave-home (follows the live delay) and wake-up-before-your-stop
+  reminders, PNR status (you type the CAPTCHA), delay history, calendar export.
+* **Announcements**: PIB press releases, official railway pages you choose, NTES cancelled/diverted/rescheduled
+  lists, and X posts from @RailMinIndia and others (official X API with a spending cap). Anything about
+  your train or station is flagged and sent to your phone.
+* **Daily digest**, **Help** (139 · 182 · 112), and chat commands: `PNR 4512345678`, `my trips`, `news for 12951`, `helpline`.
+
+Guide: [`docs/PERSONAL.md`](docs/PERSONAL.md)
+
 ## New in 2.1: the browser assistant (real official pages)
 
 Run **`start.bat`** (Windows) or **`./start.sh`** (Mac/Linux). The dashboard opens signed in, and a
@@ -10,7 +21,7 @@ one train at a time, every few minutes. It can also check **IRCTC vacant berths*
 date you choose, and search trains by name. Results feed the crossing engine, alerts and WhatsApp.
 Full guide: [`docs/BROWSER_ASSISTANT.md`](docs/BROWSER_ASSISTANT.md).
 
-> **Status:** tested end-to-end against a local mock site (117 tests). The real NTES and IRCTC pages
+> **Status:** tested end-to-end against a local mock site. The real NTES and IRCTC pages
 > could not be reached from the build environment, so on first use teach the assistant the real pages
 > once (one command, ~1 minute). It never solves CAPTCHAs or bypasses bot checks. Automating these pages
 > goes against NTES's robots policy and IRCTC's terms: personal, low-rate use only.
@@ -19,7 +30,7 @@ Full guide: [`docs/BROWSER_ASSISTANT.md`](docs/BROWSER_ASSISTANT.md).
 
 ```bash
 python -m railvision.api.server --port 8000      # demo mode, opens on http://127.0.0.1:8000
-python -m unittest discover -s tests              # 117 tests (browser tests need: pip install playwright)
+python -m unittest discover -s tests              # 137 tests (browser tests need: pip install playwright)
 python tools/export_demo_snapshot.py              # rebuild the offline replay dashboard (dist/)
 ```
 
@@ -42,10 +53,11 @@ railvision/services    store, tracker (shared polling), messages, resilience, Wh
 railvision/delivery    WhatsApp (1:1 / OBA groups / channel queue), Telegram, email, FCM, in-app SSE
 railvision/chatbot     EN/HI/Hinglish NLU, chat engine, optional LLM classifier
 railvision/assist      browser assistant: runner, auto form-filler, TEACH recorder, polite agent loop, CLI
-railvision/parsers     NTES running-status, IRCTC vacant-berth and train-search parsers
+railvision/parsers     NTES running-status, exception lists, PNR, IRCTC vacant-berth and train-search parsers
+railvision/news        announcements: RSS, official web pages, X official API, relevance scoring
 railvision/api         framework-agnostic app, stdlib server, FastAPI wrapper
 web/                   dashboard + PWA manifest + service worker
-docs/                  BROWSER_ASSISTANT.md · FEASIBILITY.md · ARCHITECTURE.md · PRIVACY.md · API.md
+docs/                  PERSONAL.md · BROWSER_ASSISTANT.md · FEASIBILITY.md · ARCHITECTURE.md · PRIVACY.md · API.md
 tests/mock_sites       local mock railway pages used by the end-to-end tests
 PROJECT_STATUS.md      completed / tested / blockers / costs / next steps
 ```
@@ -53,6 +65,6 @@ PROJECT_STATUS.md      completed / tested / blockers / costs / next steps
 ## Push this repository to GitHub
 
 ```bash
-git remote add origin https://github.com/deepkmr0007/railvision-ai.git   # create the empty repo on github.com first
-git push -u origin main
+git remote add origin https://github.com/deepkmr0007/railvision.git
+git push -u origin main --tags
 ```

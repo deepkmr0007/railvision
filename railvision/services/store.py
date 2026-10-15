@@ -81,6 +81,7 @@ class Store:
         if path != ":memory:":
             self.db.execute("PRAGMA journal_mode=WAL")
         self.lock = threading.RLock()
+        self.clock = now_ist          # the App replaces this with its own clock (tests, replays)
         self.pepper = (pepper or secrets.token_hex(16)).encode()
         with self.lock:
             self.db.executescript(SCHEMA)
@@ -101,13 +102,13 @@ class Store:
 
     def audit(self, actor: str, action: str, target: str = "", detail: dict | None = None):
         self.x("INSERT INTO audit_events(actor,action,target,detail,created_at) VALUES (?,?,?,?,?)",
-               (actor, action, target, _j(detail or {}), iso(now_ist())))
+               (actor, action, target, _j(detail or {}), iso(self.clock())))
 
     # ---- users / auth ---------------------------------------------------------------
     def create_user(self, display_name: str) -> tuple[str, str]:
         uid = "u_" + secrets.token_hex(6)
         token = "rv_" + secrets.token_urlsafe(24)
-        self.x("INSERT INTO users VALUES (?,?,?,?)", (uid, display_name, self.hash_subject(token), iso(now_ist())))
+        self.x("INSERT INTO users VALUES (?,?,?,?)", (uid, display_name, self.hash_subject(token), iso(self.clock())))
         self.audit(uid, "user.create", uid)
         return uid, token
 
@@ -120,7 +121,7 @@ class Store:
     # ---- tasks --------------------------------------------------------------------------
     def create_task(self, user_id: str, **f) -> dict:
         tid = "t_" + secrets.token_hex(6)
-        now = iso(now_ist())
+        now = iso(self.clock())
         self.x("""INSERT INTO tracking_tasks(id,user_id,train_number,service_date,reference_station,end_station,
                   interval_min,delay_threshold_min,destinations,status,is_demo,quiet_start,quiet_end,created_at,updated_at,next_run_at)
                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
@@ -163,7 +164,7 @@ class Store:
             sets.append(f"{k}=?")
             args.append(_j(v) if k in ("destinations", "last_result") else v)
         sets.append("updated_at=?")
-        args.append(iso(now_ist()))
+        args.append(iso(self.clock()))
         self.x(f"UPDATE tracking_tasks SET {', '.join(sets)} WHERE id=?", (*args, task_id))
         if user_id:
             self.audit(user_id, "task.update", task_id, {k: v for k, v in changes.items() if k != "last_result"})
@@ -210,7 +211,7 @@ class Store:
                      (task_id, d["train_number"], d["service_date"], d["station_code"], d["event_class"], d["verification"],
                       None if d["crossed"] is None else int(d["crossed"]), d["event_time"], d["est_earliest"],
                       d["est_latest"], d["est_central"], d["confidence"], d["method"], d["method_version"],
-                      d["source_id"], d["source_time"], int(d["is_demo"]), iso(now_ist()),
+                      d["source_id"], d["source_time"], int(d["is_demo"]), iso(self.clock()),
                       prev[0]["id"] if prev else None))
         return cur.lastrowid
 
@@ -225,7 +226,7 @@ class Store:
         try:
             cur = self.x("""INSERT INTO notifications(user_id,task_id,type,dedupe_key,title,body,payload,is_demo,created_at)
                             VALUES (?,?,?,?,?,?,?,?,?)""",
-                         (user_id, task_id, ntype, dedupe_key, title, body, _j(payload), int(is_demo), iso(now_ist())))
+                         (user_id, task_id, ntype, dedupe_key, title, body, _j(payload), int(is_demo), iso(self.clock())))
             return cur.lastrowid
         except sqlite3.IntegrityError:
             return None
@@ -240,7 +241,7 @@ class Store:
 
     def add_delivery(self, notification_id: int, destination: str, status: str, detail: str = ""):
         self.x("INSERT INTO delivery_attempts(notification_id,destination,status,detail,created_at) VALUES (?,?,?,?,?)",
-               (notification_id, destination, status, detail[:500], iso(now_ist())))
+               (notification_id, destination, status, detail[:500], iso(self.clock())))
 
     def deliveries(self, notification_id: int) -> list[dict]:
         return self.q("SELECT * FROM delivery_attempts WHERE notification_id=? ORDER BY id", (notification_id,))
@@ -248,7 +249,7 @@ class Store:
     # ---- WhatsApp links, consent, replay guard --------------------------------------------
     def record_consent(self, subject: str, channel: str, action: str, evidence: str = ""):
         self.x("INSERT INTO consent_records(subject_hash,channel,action,evidence,created_at) VALUES (?,?,?,?,?)",
-               (self.hash_subject(subject), channel, action, evidence[:200], iso(now_ist())))
+               (self.hash_subject(subject), channel, action, evidence[:200], iso(self.clock())))
 
     def consent_state(self, subject: str, channel: str) -> str | None:
         r = self.q("SELECT action FROM consent_records WHERE subject_hash=? AND channel=? ORDER BY id DESC LIMIT 1",
@@ -257,7 +258,7 @@ class Store:
 
     def wa_upsert(self, phone: str, opted_in: bool | None = None, inbound: bool = False, user_id: str | None = None):
         h = self.hash_subject(phone)
-        now = iso(now_ist())
+        now = iso(self.clock())
         ex = self.q("SELECT * FROM wa_links WHERE phone_hash=?", (h,))
         if not ex:
             self.x("INSERT INTO wa_links VALUES (?,?,?,?,?,?)",
@@ -288,7 +289,7 @@ class Store:
         if r:
             return r[0]["user_id"]
         uid, _ = self.create_user(f"telegram {str(chat_id)[-4:]}")
-        self.x("INSERT INTO telegram_links VALUES (?,?,?)", (str(chat_id), uid, iso(now_ist())))
+        self.x("INSERT INTO telegram_links VALUES (?,?,?)", (str(chat_id), uid, iso(self.clock())))
         return uid
 
     def tg_chat_for_user(self, user_id: str) -> str | None:
@@ -299,18 +300,18 @@ class Store:
         from datetime import timedelta
         code = f"{secrets.randbelow(10**6):06d}"
         self.x("INSERT OR REPLACE INTO link_codes VALUES (?,?,?)",
-               (code, user_id, iso(now_ist() + timedelta(minutes=ttl_min))))
+               (code, user_id, iso(self.clock() + timedelta(minutes=ttl_min))))
         return code
 
     def consume_link_code(self, code: str) -> str | None:
-        r = self.q("SELECT * FROM link_codes WHERE code=? AND expires_at>?", (code, iso(now_ist())))
+        r = self.q("SELECT * FROM link_codes WHERE code=? AND expires_at>?", (code, iso(self.clock())))
         self.x("DELETE FROM link_codes WHERE code=?", (code,))
         return r[0]["user_id"] if r else None
 
     def seen_message(self, msg_id: str) -> bool:
         """True if this inbound message id was already processed (replay / webhook retry)."""
         try:
-            self.x("INSERT INTO processed_messages VALUES (?,?)", (msg_id, iso(now_ist())))
+            self.x("INSERT INTO processed_messages VALUES (?,?)", (msg_id, iso(self.clock())))
             return False
         except sqlite3.IntegrityError:
             return True
@@ -321,17 +322,17 @@ class Store:
         return json.loads(r[0]["context"]) if r else {}
 
     def set_context(self, session_id: str, user_id: str | None, ctx: dict):
-        self.x("INSERT OR REPLACE INTO chat_context VALUES (?,?,?,?)", (session_id, user_id, _j(ctx), iso(now_ist())))
+        self.x("INSERT OR REPLACE INTO chat_context VALUES (?,?,?,?)", (session_id, user_id, _j(ctx), iso(self.clock())))
 
     def queue_channel_post(self, channel: str, text: str, task_id: str | None = None) -> int:
         return self.x("INSERT INTO channel_queue(channel,text,task_id,created_at) VALUES (?,?,?,?)",
-                      (channel, text, task_id, iso(now_ist()))).lastrowid
+                      (channel, text, task_id, iso(self.clock()))).lastrowid
 
     def channel_queue(self, pending_only: bool = True) -> list[dict]:
         return self.q("SELECT * FROM channel_queue" + (" WHERE published_at IS NULL" if pending_only else "") + " ORDER BY id DESC")
 
     def mark_channel_published(self, post_id: int):
-        self.x("UPDATE channel_queue SET published_at=? WHERE id=?", (iso(now_ist()), post_id))
+        self.x("UPDATE channel_queue SET published_at=? WHERE id=?", (iso(self.clock()), post_id))
 
     def stats(self) -> dict[str, Any]:
         return {t: self.q(f"SELECT COUNT(*) n FROM {t}")[0]["n"] for t in

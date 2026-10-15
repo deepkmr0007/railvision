@@ -1,9 +1,25 @@
 # RAILVISION AI — Project status
 
-**Date:** 15 Oct 2026 · **Build:** v2.1.0 · **Test evidence:** `python -m unittest discover -s tests` → **117 tests, all passing**
+**Date:** 15 Oct 2026 · **Build:** v2.2.0 · **Test evidence:** `python -m unittest discover -s tests` → **117 tests, all passing**
 (crossing 26 · WhatsApp/messaging 16 · providers 14 · chatbot 13 · parsers 13 · tracker 11 · API + real TCP server/SSE 10 ·
 assist service/API 9 · pacer 1 · browser end-to-end 4). Dashboard v2.1 rendered headless at 1280 px (light) and 390 px (dark)
 across all 10 views: no script errors, no horizontal overflow.
+
+## v2.2 — personal features (15 Oct 2026)
+
+**Tests:** 137 passing (adds 19 personal-feature tests and an end-to-end test for exception lists and
+the PNR CAPTCHA hand-over).
+
+| Area | Status | Evidence |
+|---|---|---|
+| My Journeys reminders | Heads-up → chart → leave home → wake-up → arrived, each once, in order, on a demo run | test_personal JourneyTests |
+| PNR | Assisted: page opened and PNR filled, YOU type the CAPTCHA; a headless agent never gets past it; statuses parsed, trip updated, change alert | e2e test 5, unit tests |
+| Announcements | PIB RSS railway filter, web-page baseline/new links, ETag, robots.txt refusal, X official API with since_id + daily budget, relevance alerts | NewsServiceTests (mock network) |
+| NTES exception lists | Read every 2 h while you watch something; your train on the list → 1.0-score alert | e2e test 1 |
+| Calendar, delay history, digest, help, chat intents | Working | StatsDigestHelpChatTests |
+
+**Not verified:** live PIB fetch from your computer (the feed structure was checked on 15 Oct 2026), the real
+PNR page URL and layout, X calls (no key), and the zonal website addresses (suggested pattern only).
 
 ## v2.1 — browser assistant (official pages, personal use)
 
