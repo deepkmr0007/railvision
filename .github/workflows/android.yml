@@ -100,3 +100,37 @@ jobs:
           EOF
           gh release create "$TAG" out/RailVision.apk "out/RailVision-$V.apk" "out/RailVision-$V.apk.sha256" \
             --target "$GITHUB_SHA" --title "RAILVISION AI $V (Android, build $GITHUB_RUN_NUMBER)" --notes-file notes.md --latest
+
+  # Installs the APK on an Android 14 emulator, starts it, and lets the in-app assistant read the mock sites.
+  smoke:
+    needs: apk
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Run the app in an emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: python android/ci/smoke.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: emulator-smoke-test
+          path: smoke/
