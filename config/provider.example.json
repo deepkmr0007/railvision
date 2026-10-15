@@ -1,0 +1,37 @@
+{
+  "_README": "TEMPLATE ONLY. Every path and field name below is a PLACEHOLDER (UNVERIFIED). Replace them from your authorized provider's official documentation, set enabled=true, and export the key env var. Never point this at NTES/IRCTC pages.",
+  "providers": [
+    {
+      "enabled": false,
+      "source_id": "licensed-provider-1",
+      "display_name": "Licensed Provider (fill in)",
+      "official": false,
+      "base_url": "https://api.example-licensed-provider.com/v1",
+      "official_url": "https://enquiry.indianrail.gov.in/mntes/",
+      "auth": {"type": "header", "name": "X-API-Key", "env": "RAIL_PROVIDER_API_KEY"},
+      "rate_limit_per_min": 30,
+      "timeout_s": 8,
+      "max_retries": 2,
+      "breaker_threshold": 4,
+      "breaker_cooldown_s": 120,
+      "success_path": null,
+      "error_path": null,
+      "capabilities": {"train_status": "REQUIRES THIRD-PARTY LICENSE", "train_route": "REQUIRES THIRD-PARTY LICENSE"},
+      "endpoints": {
+        "train_route": {"path": "/trains/{train_number}/route?date={date}", "ttl": 21600},
+        "train_status": {"path": "/trains/{train_number}/live?date={date}", "ttl": 60}
+      },
+      "map": {
+        "route": {"list": "data.stops", "code": "station_code", "name": "station_name", "km": "distance_km",
+                  "day": "day", "arr": "arrival", "dep": "departure", "halt": null, "platform": "platform",
+                  "train_name": "data.train_name"},
+        "status": {"list": "data.stops", "code": "station_code", "day": "day", "delay": "delay_min", "halt": "is_halt",
+                   "actual_arr": "actual_arrival", "actual_dep": "actual_departure",
+                   "has_arrived": "arrived", "has_departed": "departed", "platform": "platform",
+                   "updated_at": "data.last_updated", "position_station": "data.current.after_station",
+                   "position_km_after": "data.current.km_after", "cancelled": "data.is_cancelled",
+                   "diverted_route": "data.diverted_route"}
+      }
+    }
+  ]
+}

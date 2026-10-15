@@ -1,0 +1,23 @@
+# Single-node production layout. SQLite volume shown; switch RAILVISION_DB to Postgres when the
+# Postgres store adapter is enabled (schema in postgres_schema.sql).
+services:
+  api:
+    build: { context: .., dockerfile: deploy/Dockerfile }
+    env_file: ../.env
+    environment: [ "RAILVISION_DB=/data/railvision.db" ]
+    volumes: [ "rvdata:/data" ]
+    restart: unless-stopped
+  worker:
+    build: { context: .., dockerfile: deploy/Dockerfile }
+    env_file: ../.env
+    environment: [ "RAILVISION_DB=/data/railvision.db" ]
+    volumes: [ "rvdata:/data" ]
+    command: ["python", "-m", "railvision.worker"]
+    restart: unless-stopped
+  caddy:
+    image: caddy:2
+    ports: [ "80:80", "443:443" ]
+    volumes: [ "./Caddyfile:/etc/caddy/Caddyfile:ro", "caddy:/data" ]
+    depends_on: [ api ]
+    restart: unless-stopped
+volumes: { rvdata: {}, caddy: {} }

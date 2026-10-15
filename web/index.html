@@ -1,0 +1,582 @@
+<title>RAILVISION AI</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="theme-color" content="#0B1220">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;700;800&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&family=Noto+Sans+Devanagari:wght@400;600&display=swap">
+<style>
+/* Layout: control-room shell — sticky masthead + signal-aspect tab rail, one working panel per view,
+   route drawn as a km-true line diagram (the way a working timetable shows a section). */
+:root{
+  --bg:#EEF2F8; --surface:#FFFFFF; --sunk:#E4EAF3; --ink:#0D1829; --muted:#56667C; --line:#CDD6E3;
+  --accent:#1D4FAE; --accent-ink:#FFFFFF; --amber:#B86E00; --ok:#11804A; --bad:#C0302A; --nv:#7C889A;
+  --amber-soft:#FFF1D9; --ok-soft:#DDF3E7; --bad-soft:#FBE3E1; --nv-soft:#E8ECF2; --accent-soft:#E2EAFB;
+  --board-bg:#0A0E14; --board-fg:#FFB547; --board-dim:#7A5A25;
+  --f-display:"Big Shoulders Display","Arial Narrow",Impact,sans-serif;
+  --f-body:"Hanken Grotesk","Noto Sans Devanagari",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+  --r:10px; --shadow:0 1px 2px rgba(13,24,41,.06),0 4px 14px rgba(13,24,41,.05);
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0A111E; --surface:#111B2D; --sunk:#0D1625; --ink:#E5ECF6; --muted:#93A4BC; --line:#22314A;
+  --accent:#78A2FF; --accent-ink:#06142E; --amber:#F3B24E; --ok:#41C786; --bad:#F2675F; --nv:#8592A6;
+  --amber-soft:#3A2A0E; --ok-soft:#0F3424; --bad-soft:#3E1717; --nv-soft:#1B2638; --accent-soft:#16264A;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 6px 18px rgba(0,0,0,.25); color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0A111E; --surface:#111B2D; --sunk:#0D1625; --ink:#E5ECF6; --muted:#93A4BC; --line:#22314A;
+  --accent:#78A2FF; --accent-ink:#06142E; --amber:#F3B24E; --ok:#41C786; --bad:#F2675F; --nv:#8592A6;
+  --amber-soft:#3A2A0E; --ok-soft:#0F3424; --bad-soft:#3E1717; --nv-soft:#1B2638; --accent-soft:#16264A;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 6px 18px rgba(0,0,0,.25); color-scheme:dark}
+*{box-sizing:border-box}
+html,body{background:var(--bg);color:var(--ink)}
+body{font-family:var(--f-body);font-size:15px;line-height:1.5;margin:0}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+.wrap{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));max-width:1280px;margin:0 auto}
+.mono{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.muted{color:var(--muted)}
+h1,h2,h3{font-family:var(--f-display);letter-spacing:.01em;text-wrap:balance;margin:0;line-height:1.05}
+h2{font-size:1.9rem;font-weight:800}
+h3{font-size:1.25rem;font-weight:700}
+.eyebrow{font-size:.72rem;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);font-weight:600}
+
+/* masthead */
+.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:var(--surface);border-bottom:1px solid var(--line)}
+.top .wrap{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding-block:10px}
+.brand{display:flex;align-items:baseline;gap:8px}
+.brand b{font-family:var(--f-display);font-weight:800;font-size:1.6rem;letter-spacing:.04em}
+.brand span{font-family:var(--f-display);font-weight:600;font-size:1.05rem;color:var(--accent)}
+.modepill{font-weight:700;font-size:.72rem;letter-spacing:.1em;text-transform:uppercase;padding:5px 10px;border-radius:4px}
+.modepill.demo{color:#1a1200;background:repeating-linear-gradient(135deg,#FFC24B 0 10px,#FFD780 10px 20px);border:1px solid #7a5300}
+.modepill.live{color:var(--accent-ink);background:var(--ok)}
+.modepill.off{background:var(--nv-soft);color:var(--muted)}
+.spacer{flex:1}
+.clock{font-family:var(--f-mono);font-size:.9rem}
+.iconbtn{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:6px 10px;cursor:pointer}
+.iconbtn:hover{border-color:var(--accent)}
+.health{display:flex;gap:6px;align-items:center;font-size:.78rem;color:var(--muted)}
+.dot{width:9px;height:9px;border-radius:50%;display:inline-block;background:var(--nv)}
+.dot.ok{background:var(--ok)}.dot.warn{background:var(--amber)}.dot.bad{background:var(--bad)}
+
+/* tab rail */
+.rail{background:var(--surface);border-bottom:1px solid var(--line)}
+.rail .wrap{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;padding-block:0}
+.rail .wrap::-webkit-scrollbar{display:none}
+.tab{border:0;background:none;padding:11px 12px;cursor:pointer;color:var(--muted);font-weight:600;white-space:nowrap;border-bottom:3px solid transparent;display:flex;align-items:center;gap:7px}
+.tab[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent)}
+.tab .asp{width:8px;height:8px;border-radius:50%;background:var(--line)}
+.tab[aria-selected="true"] .asp{background:var(--accent)}
+
+/* replay bar */
+.replay{background:var(--amber-soft);border-bottom:1px solid var(--line)}
+.replay .wrap{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding-block:8px}
+.replay input[type=range]{flex:1;min-width:180px;accent-color:var(--amber)}
+.replay .t{font-family:var(--f-mono);font-weight:600;min-width:5ch}
+.replay small{color:var(--muted)}
+
+main .wrap{padding-block:22px 60px}
+.view{display:grid;gap:18px}
+.row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+.grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(270px,1fr))}
+.two{display:grid;gap:18px;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr)}
+@media (max-width:900px){.two{grid-template-columns:minmax(0,1fr)}}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px;min-width:0}
+.panel.flat{box-shadow:none}
+.panel h3{margin-bottom:10px}
+.lede{max-width:68ch;color:var(--muted);margin:6px 0 0}
+
+/* chips */
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:.72rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:3px 8px;border-radius:4px;white-space:nowrap;border:1px solid transparent}
+.c-ok{background:var(--ok-soft);color:var(--ok);border-color:color-mix(in srgb,var(--ok) 30%,transparent)}
+.c-amber{background:var(--amber-soft);color:var(--amber);border-color:color-mix(in srgb,var(--amber) 30%,transparent)}
+.c-bad{background:var(--bad-soft);color:var(--bad);border-color:color-mix(in srgb,var(--bad) 30%,transparent)}
+.c-nv{background:var(--nv-soft);color:var(--muted);border-color:var(--line)}
+.c-acc{background:var(--accent-soft);color:var(--accent)}
+.c-demo{background:repeating-linear-gradient(135deg,#FFC24B 0 6px,#FFD780 6px 12px);color:#1a1200}
+
+/* train cards */
+.tcard{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px;display:grid;gap:10px;cursor:pointer;text-align:left}
+.tcard:hover{border-color:var(--accent)}
+.tno{font-family:var(--f-display);font-size:2.3rem;font-weight:800;line-height:.9;letter-spacing:.02em}
+.tname{font-size:.82rem;color:var(--muted);font-weight:600}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;font-size:.86rem}
+.kv dt{color:var(--muted)} .kv dd{margin:0;font-weight:600;min-width:0}
+.bar{height:6px;background:var(--sunk);border-radius:3px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--accent)}
+.fresh{font-size:.76rem;color:var(--muted);font-family:var(--f-mono)}
+
+/* forms */
+.field{display:grid;gap:4px;font-size:.82rem;color:var(--muted);font-weight:600}
+.field input,.field select,.field textarea{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;min-width:0;color:var(--ink);font-weight:500}
+.btn{border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink);font-weight:700;border-radius:8px;padding:8px 14px;cursor:pointer}
+.btn.ghost{background:transparent;color:var(--accent)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.seg{display:flex;flex-wrap:wrap;gap:6px}
+.seg button{border:1px solid var(--line);background:var(--surface);padding:6px 10px;border-radius:999px;cursor:pointer;font-weight:600;font-size:.85rem}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+
+/* line diagram + map */
+.diagram{overflow-x:auto}
+.diagram svg{display:block;min-width:640px;width:100%;height:auto}
+svg text{fill:var(--ink)}
+.geo svg{width:100%;height:auto;display:block;background:var(--sunk);border-radius:8px}
+
+/* tables */
+.tbl{overflow-x:auto;border:1px solid var(--line);border-radius:8px}
+table{border-collapse:collapse;width:100%;font-size:.86rem}
+th{font-size:.7rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);text-align:left;padding:8px 10px;background:var(--sunk);position:sticky;top:0}
+td{padding:8px 10px;border-top:1px solid var(--line);vertical-align:top}
+td.n,th.n{text-align:right;font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+tr.pass td{color:var(--muted)}
+tr.pass td.st{font-style:italic}
+
+/* crossing */
+.verdict{display:grid;gap:12px}
+.verdict .head{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.verdict p.hl{font-size:1.15rem;font-weight:600;margin:0;max-width:70ch}
+.meter{display:flex;align-items:center;gap:10px;font-size:.85rem}
+.meter .bar{flex:1;max-width:240px}
+ul.ev{margin:0;padding-left:18px;font-size:.88rem}
+.warn{background:var(--amber-soft);color:var(--ink);border-left:3px solid var(--amber);padding:8px 10px;border-radius:4px;font-size:.86rem}
+.legend{display:flex;flex-wrap:wrap;gap:12px;font-size:.8rem;color:var(--muted)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.sw{width:12px;height:12px;border-radius:3px;display:inline-block}
+
+/* departure board: one fixed look in both themes */
+.board{background:var(--board-bg);color:var(--board-fg);border-radius:10px;padding:14px;font-family:var(--f-mono);overflow-x:auto;border:1px solid #222a36}
+.board table{font-size:.9rem;min-width:560px}
+.board th{background:transparent;color:var(--board-dim);border:0}
+.board td{border-top:1px dashed #2a2f37;color:var(--board-fg)}
+.board .bt{font-family:var(--f-display);font-size:1.5rem;letter-spacing:.06em;color:var(--board-fg);margin-bottom:6px}
+
+/* coach map */
+.coach{display:grid;gap:8px}
+.bays{display:flex;gap:6px;overflow-x:auto;padding-bottom:6px}
+.bay{display:grid;grid-template-columns:repeat(3,34px);grid-template-rows:repeat(2,34px) 8px 34px;gap:3px;padding:6px;border:1px solid var(--line);border-radius:6px;background:var(--sunk)}
+.bay.b2{grid-template-columns:repeat(2,34px)}
+.berth{border:0;border-radius:4px;font-family:var(--f-mono);font-size:.62rem;line-height:1.1;cursor:pointer;display:grid;place-items:center;padding:0}
+.berth.v{background:var(--ok);color:var(--surface)}
+.berth.p{background:repeating-linear-gradient(135deg,var(--amber) 0 4px,var(--amber-soft) 4px 8px);color:var(--ink)}
+.berth.o{background:var(--nv-soft);color:var(--muted);border:1px solid var(--line)}
+.berth[aria-pressed="true"]{outline:2px solid var(--accent);outline-offset:1px}
+.three{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
+.three .panel{padding:12px}
+
+/* feed + chat */
+.feed{display:grid;gap:10px}
+.note{border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:var(--surface);display:grid;gap:6px}
+.note .row{gap:8px}
+.bubble{white-space:pre-wrap;font-size:.84rem;background:var(--sunk);border-radius:10px 10px 10px 2px;padding:10px 12px;max-width:62ch;overflow-wrap:anywhere}
+.chat{display:grid;gap:10px;max-height:62vh;overflow-y:auto;padding:4px}
+.msg{max-width:min(78ch,92%);white-space:pre-wrap;overflow-wrap:anywhere;padding:10px 12px;border-radius:12px;font-size:.92rem}
+.msg.me{justify-self:end;background:var(--accent);color:var(--accent-ink);border-bottom-right-radius:3px}
+.msg.bot{justify-self:start;background:var(--sunk);border-bottom-left-radius:3px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chips button{border:1px dashed var(--accent);background:transparent;color:var(--accent);border-radius:999px;padding:5px 10px;cursor:pointer;font-size:.82rem}
+.empty{color:var(--muted);font-size:.9rem;padding:8px 0}
+.banner{border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:.86rem;background:var(--surface)}
+.banner.demo{border-color:#b98300;background:var(--amber-soft)}
+.cap{display:grid;gap:6px}
+a{color:var(--accent)}
+.lowbw .geo,.lowbw .noLow{display:none!important}
+@media (prefers-reduced-motion:no-preference){.bar i{transition:width .4s ease}}
+@media (max-width:560px){h2{font-size:1.5rem}.tno{font-size:2rem}.brand b{font-size:1.35rem}}
+</style>
+
+<div id="app">
+<header class="top">
+  <div class="wrap">
+    <div class="brand"><b>RAILVISION</b><span>AI</span></div>
+    <span id="modePill" class="modepill off">Connecting…</span>
+    <div class="spacer"></div>
+    <div class="health" id="health" title="Data source health"></div>
+    <span class="clock" id="clock" aria-label="Indian Standard Time">--:-- IST</span>
+    <button class="iconbtn" id="themeBtn" type="button" aria-label="Change theme">Theme: system</button>
+  </div>
+</header>
+<nav class="rail" aria-label="Sections">
+  <div class="wrap" role="tablist" id="tabs"></div>
+</nav>
+<div class="replay" id="replay" hidden>
+  <div class="wrap">
+    <span class="chip c-demo">Demo replay</span>
+    <label for="scrub" class="muted" style="font-size:.85rem">Scenario clock</label>
+    <input type="range" id="scrub" min="0" max="0" value="0">
+    <span class="t" id="scrubT">--:--</span>
+    <button class="iconbtn" id="playBtn" type="button">Play</button>
+    <small>Synthetic trains 9000x. Every value below was computed by the RAILVISION engine at this clock time.</small>
+  </div>
+</div>
+<main><div class="wrap" id="main"></div></main>
+</div>
+
+<script>
+const RV_SNAPSHOT=/*RV_SNAPSHOT*/null;
+(function(){
+"use strict";
+const $=(s,r=document)=>r.querySelector(s);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const hm=iso=>iso?String(iso).slice(11,16):"—";
+const store={get(k,d){try{const v=localStorage.getItem("rv_"+k);return v===null?d:JSON.parse(v)}catch(e){return d}},
+             set(k,v){try{localStorage.setItem("rv_"+k,JSON.stringify(v))}catch(e){}}};
+
+const VIEWS=[["overview","Overview"],["train","Live train"],["crossing","Crossing monitor"],["station","Station board"],
+  ["vacancy","Chart vacancy"],["alerts","Tracking & alerts"],["assistant","Assistant"],["sources","Data sources"],["settings","Settings"]];
+const S={view:"overview",train:store.get("train","90001"),station:store.get("cstation","RE"),board:"AWR",
+  vac:{from:"JP",cls:"3A",sel:null},frame:0,token:store.get("token",null),mode:"offline",serverMode:null,
+  chat:[],cache:{},playing:null,lowbw:store.get("lowbw",false),theme:store.get("theme","system"),saved:store.get("saved",[])};
+
+/* ---------------- data adapter: offline replay snapshot or live server ---------------- */
+const API={
+  async init(){
+    if(RV_SNAPSHOT){S.mode="snapshot";S.frame=RV_SNAPSHOT.default_frame||0;return}
+    try{const r=await fetch("/api/health");if(!r.ok)throw 0;const h=await r.json();S.mode="server";S.serverMode=h.mode;
+      if(!S.token&&h.mode==="demo"){const s=await this.post("/api/session",{display_name:"Dashboard"},false);S.token=s.token;store.set("token",S.token)}
+    }catch(e){S.mode="offline"}
+  },
+  async get(p,auth){const r=await fetch(p,{headers:auth&&S.token?{Authorization:"Bearer "+S.token}:{}});const j=await r.json().catch(()=>({}));if(!r.ok)throw Object.assign(new Error(j.error||("HTTP "+r.status)),{data:j});return j},
+  async post(p,b,auth=true,method="POST"){const h={"Content-Type":"application/json"};if(auth&&S.token)h.Authorization="Bearer "+S.token;
+    const r=await fetch(p,{method,headers:h,body:b?JSON.stringify(b):undefined});const j=await r.json().catch(()=>({}));if(!r.ok)throw Object.assign(new Error(j.error||("HTTP "+r.status)),{data:j});return j},
+  frame(){return RV_SNAPSHOT.frames[S.frame]},
+  now(){return S.mode==="snapshot"?this.frame().t:null},
+  trains(){if(S.mode==="snapshot")return Object.keys(RV_SNAPSHOT.routes);return Array.from(new Set([...(S.serverMode==="demo"?["90001","90002","90003","90004"]:[]),...S.saved]))},
+  async route(no){if(S.mode==="snapshot")return RV_SNAPSHOT.routes[no];const k="route"+no;if(!S.cache[k])S.cache[k]=await this.get(`/api/trains/${no}/route`);return S.cache[k]},
+  async status(no,station){if(S.mode==="snapshot"){const f=this.frame().trains[no];return {status:f.status,crossing:station?f.crossings[station]:null}}
+    return this.get(`/api/trains/${no}/status`+(station?`?station=${encodeURIComponent(station)}`:""))},
+  async crossings(no){if(S.mode==="snapshot")return this.frame().trains[no].crossings;return null},
+  history(no,code){if(S.mode!=="snapshot")return this.get(`/api/trains/${no}/passage-history?station=${code}`,true).then(r=>r.history.map(h=>({t:h.created_at,c:h})));
+    const out=[];let last=null;for(const f of RV_SNAPSHOT.frames.slice(0,S.frame+1)){const c=f.trains[no].crossings[code];const sig=[c.event_class,c.verification,c.crossed,c.event_time,c.est_central].join("|");if(sig!==last){out.push({t:f.t,c});last=sig}}return Promise.resolve(out)},
+  async board(code){if(S.mode==="snapshot")return {rows:RV_SNAPSHOT.boards[code]||[],source:"demo-synthetic",is_demo:true};return this.get(`/api/stations/${code}/board`)},
+  async vacancy(no,from,cls){if(S.mode==="snapshot"){const v=RV_SNAPSHOT.vacancy[from+"|"+cls];if(!v)throw new Error("This replay only includes 3A from JP, BKI, AWR and 2A / SL from JP.");return v}
+    return this.get(`/api/vacancy?train=${no}&from=${from}&class=${cls}`)},
+  async sources(){if(S.mode==="snapshot")return RV_SNAPSHOT.sources;return this.get("/api/sources")},
+  async notifications(){if(S.mode==="snapshot"){const t=this.now();return RV_SNAPSHOT.notifications.filter(n=>n.at<=t).slice().reverse()}
+    const r=await this.get("/api/notifications",true);return r.items.map(n=>({...n,at:n.created_at}))},
+  async tasks(){if(S.mode==="snapshot")return this.frame().tasks;return (await this.get("/api/tasks",true)).tasks},
+  between(){return S.mode==="snapshot"?RV_SNAPSHOT.between:null}
+};
+
+/* ---------------- small renderers ---------------- */
+const STATE_CHIP={RUNNING:["Running","c-acc"],AT_STATION:["At station","c-acc"],COMPLETED:["Arrived","c-ok"],NOT_STARTED:["Not started","c-nv"],
+  NO_REPORTS:["No reports","c-nv"],CANCELLED:["Cancelled","c-bad"],RUNNING_DIVERTED:["Diverted","c-amber"],AT_STATION_DIVERTED:["Diverted","c-amber"],UNKNOWN:["Unknown","c-nv"]};
+const stateChip=s=>{const [l,c]=STATE_CHIP[s]||[s,"c-nv"];return `<span class="chip ${c}">${esc(l)}</span>`};
+const CLS={SCHEDULED_HALT:["Scheduled halt","c-acc"],CONFIRMED_PASSAGE:["Confirmed passage","c-ok"],ESTIMATED_CROSSING:["Estimated crossing","c-amber"],
+  NOT_VERIFIED:["Crossing not verified","c-nv"],NOT_ON_ROUTE:["Not on route","c-bad"],CANCELLED:["Cancelled","c-bad"]};
+const VER={VERIFIED_LIVE:["Source-reported","c-ok"],DERIVED:["Proven by later report","c-ok"],ESTIMATED:["Estimate","c-amber"],STALE:["Stale data","c-bad"],DEMO:["Demo","c-demo"]};
+const clsChip=c=>{const [l,k]=CLS[c]||[c,"c-nv"];return `<span class="chip ${k}">${esc(l)}</span>`};
+const verChip=v=>{const [l,k]=VER[v]||[v,"c-nv"];return `<span class="chip ${k}">${esc(l)}</span>`};
+const delayTxt=d=>d==null?"Unknown":d<=0?(d===0?"Right time":`${-d} min early`):`Late ${d} min`;
+const demoTag=x=>x?`<span class="chip c-demo" title="Synthetic fixture — never live data">Demo</span>`:"";
+function fresh(st){const f=st.freshness||{};if(!f.source_time)return `<span class="fresh">${esc(f.source||"")} · no update yet</span>`;
+  return `<span class="fresh">${esc(f.source)} · upd ${hm(f.source_time)}${f.age_min!=null?` · ${Math.round(f.age_min)} min ago`:""}</span>${f.stale?' <span class="chip c-bad">Stale</span>':""}`}
+function lastEv(st){const e=st.last_event;if(!e)return "No position reported";
+  return e.kind==="POSITION"?`${e.km_after} km after ${e.station} · ${hm(e.time)}`:`${e.kind[0]+e.kind.slice(1).toLowerCase()} ${e.station} · ${hm(e.time)}`}
+function trainPicker(id){return `<div class="seg" role="group" aria-label="Train">${API.trains().map(n=>`<button type="button" data-pick="${id}" data-no="${n}" aria-pressed="${n===S.train}">${n}</button>`).join("")}
+  <span class="row" style="gap:6px"><input id="${id}In" class="mono" inputmode="numeric" maxlength="5" placeholder="5-digit no." style="width:8.5em;background:var(--bg);border:1px solid var(--line);border-radius:999px;padding:6px 12px">
+  <button type="button" class="btn ghost" data-go="${id}">Open</button></span></div>`}
+function errBox(e){const u=e&&e.data&&e.data.official_url;return `<div class="banner"><b>Not available from an authorized source.</b> ${esc(e.message||e)}${u?` <a href="${esc(u)}" target="_blank" rel="noopener">Open the official page</a>`:""}</div>`}
+
+/* ---------------- line diagram (km-true) ---------------- */
+function lineDiagram(route,st){
+  const stops=st.stops.filter(s=>s.km!=null);if(!stops.length)return "";
+  const k0=Math.min(...stops.map(s=>s.km)),k1=Math.max(...stops.map(s=>s.km))||1;
+  const W=1000,L=40,R=40,y=70,x=km=>L+(km-k0)/(k1-k0)*(W-L-R);
+  let trainKm=null;const e=st.last_event;
+  if(e){const s=route.stops.find(z=>z.code===e.station);if(s)trainKm=s.km+(e.kind==="POSITION"?(e.km_after||0):0)}
+  const done=trainKm!=null?x(trainKm):L;
+  let g=`<svg viewBox="0 0 ${W} 150" role="img" aria-label="Route line diagram">`;
+  g+=`<line x1="${L}" y1="${y}" x2="${W-R}" y2="${y}" stroke="var(--line)" stroke-width="6" stroke-dasharray="10 6"/>`;
+  g+=`<line x1="${L}" y1="${y}" x2="${done}" y2="${y}" stroke="var(--accent)" stroke-width="6" stroke-linecap="round"/>`;
+  stops.forEach((s,i)=>{const X=x(s.km),up=i%2===0;const passed=s.status!=="UPCOMING";
+    if(s.halt){g+=`<circle cx="${X}" cy="${y}" r="9" fill="${passed?"var(--accent)":"var(--surface)"}" stroke="var(--accent)" stroke-width="3"/>`}
+    else{g+=`<line x1="${X}" y1="${y-12}" x2="${X}" y2="${y+12}" stroke="var(--muted)" stroke-width="3"/>`}
+    g+=`<text x="${X}" y="${up?y-22:y+34}" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="15" font-weight="600" style="fill:${s.halt?"var(--ink)":"var(--muted)"}">${esc(s.code)}</text>`;
+    g+=`<text x="${X}" y="${up?y-40:y+52}" text-anchor="middle" font-size="12" style="fill:var(--muted)">${s.halt?hm(s.sched_arr||s.sched_dep):"non-stop"} · ${Math.round(s.km)} km</text>`});
+  if(trainKm!=null){const X=x(trainKm);
+    g+=`<g><rect x="${X-11}" y="${y-8}" width="22" height="16" rx="4" fill="var(--amber)" stroke="var(--surface)" stroke-width="2"/>
+       <text x="${X}" y="${y+118-70}" text-anchor="middle" font-size="12" font-weight="700" style="fill:var(--amber)"></text></g>`}
+  return g+`</svg>`}
+
+function geoMap(route,st){
+  const pts=route.stops.filter(s=>s.lat!=null);if(pts.length<2)return `<p class="empty">No coordinates for this route.</p>`;
+  const lat=pts.map(p=>p.lat),lon=pts.map(p=>p.lon);const c=Math.cos((Math.min(...lat)+Math.max(...lat))/2*Math.PI/180);
+  const minX=Math.min(...lon)*c,maxX=Math.max(...lon)*c,minY=Math.min(...lat),maxY=Math.max(...lat);
+  const W=360,H=300,pad=36,sc=Math.min((W-2*pad)/((maxX-minX)||1),(H-2*pad)/((maxY-minY)||1));
+  const P=p=>[pad+(p.lon*c-minX)*sc,H-pad-(p.lat-minY)*sc];
+  let g=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Approximate geographic route">`;
+  g+=`<polyline fill="none" stroke="var(--accent)" stroke-width="3" points="${pts.map(p=>P(p).join(",")).join(" ")}"/>`;
+  const doneCodes=new Set(st.completed||[]);
+  pts.forEach(p=>{const [X,Y]=P(p);g+=`<circle cx="${X}" cy="${Y}" r="${p.halt?5:3}" fill="${doneCodes.has(p.code)?"var(--accent)":"var(--surface)"}" stroke="var(--accent)" stroke-width="2"/>
+    <text x="${X+8}" y="${Y+4}" font-size="11" font-family="JetBrains Mono,monospace">${esc(p.code)}</text>`});
+  const e=st.last_event;if(e){const p=pts.find(q=>q.code===e.station);if(p){const [X,Y]=P(p);g+=`<circle cx="${X}" cy="${Y}" r="8" fill="none" stroke="var(--amber)" stroke-width="3"/>`}}
+  return g+`<text x="${W-8}" y="${H-8}" text-anchor="end" font-size="10" style="fill:var(--muted)">Approximate positions · no map tiles</text></svg>`}
+
+/* ---------------- views ---------------- */
+async function vOverview(){
+  const trains=API.trains();
+  if(!trains.length)return `<section class="view"><h2>Overview</h2><div class="banner">No saved trains yet. Open a train in <b>Live train</b> to pin it here.</div></section>`;
+  const sts=await Promise.all(trains.map(n=>API.status(n).then(r=>r.status).catch(e=>({err:e,train_number:n}))));
+  const notes=await API.notifications().catch(()=>[]);const tasks=await API.tasks().catch(()=>[]);
+  const cards=sts.map(st=>st.err?`<div class="tcard"><div class="tno">${esc(st.train_number)}</div>${errBox(st.err)}</div>`:
+   `<button class="tcard" type="button" data-open="${st.train_number}">
+     <div class="row" style="justify-content:space-between"><div class="tno">${esc(st.train_number)}</div><div class="row" style="gap:6px">${stateChip(st.state)}${demoTag(st.is_demo)}</div></div>
+     <div class="tname">${esc(st.train_name)}</div>
+     <dl class="kv"><dt>Last report</dt><dd>${esc(lastEv(st))}</dd><dt>Delay</dt><dd>${esc(delayTxt(st.delay_min))}</dd><dt>Next halt</dt><dd class="mono">${esc(st.next_stop||"—")}</dd></dl>
+     <div class="bar" aria-label="Route progress ${st.progress_pct}%"><i style="width:${st.progress_pct}%"></i></div>
+     <div class="row" style="justify-content:space-between">${fresh(st)}<span class="fresh">${st.progress_pct}%</span></div></button>`).join("");
+  const active=tasks.filter(t=>["ACTIVE","PAUSED","PENDING_CONFIRMATION"].includes(t.status));
+  return `<section class="view">
+   <div><div class="eyebrow">Command center · ${S.mode==="snapshot"?"replay "+hm(API.now()):"live"}</div><h2>Trains on watch</h2>
+   <p class="lede">Positions shown are only what the source reported. Timetable-based estimates live in the Crossing monitor, always labelled.</p></div>
+   <div class="grid">${cards}</div>
+   <div class="two"><div class="panel"><h3>Latest alerts</h3><div class="feed">${notes.slice(0,4).map(noteHtml).join("")||'<p class="empty">No alerts yet.</p>'}</div></div>
+   <div class="panel"><h3>Active tracking</h3>${active.length?active.map(taskHtml).join(""):'<p class="empty">No active tracking tasks.</p>'}</div></div></section>`}
+
+async function vTrain(){
+  let route,r;try{[route,r]=await Promise.all([API.route(S.train),API.status(S.train)])}catch(e){return `<section class="view"><h2>Live train</h2>${trainPicker("tp")}${errBox(e)}</section>`}
+  const st=r.status;
+  const rows=st.stops.map(s=>{const a=s.actual||{};const act=[a.arrived?"arr "+hm(a.arrived):"",a.departed?"dep "+hm(a.departed):"",a.passed?"passed "+hm(a.passed):""].filter(Boolean).join(" · ");
+    return `<tr class="${s.halt?"":"pass"}"><td class="mono">${esc(s.code)}</td><td class="st">${esc(s.name)}${s.halt?"":" <span class='muted'>(run-through)</span>"}</td><td class="n">${s.day??""}</td><td class="n">${hm(s.sched_arr)}</td><td class="n">${hm(s.sched_dep)}</td><td class="mono">${esc(act||"—")}</td><td class="n">${a.delay_min!=null?(a.delay_min>0?"+":"")+a.delay_min:"—"}</td><td class="n">${esc(s.platform||"—")}</td><td>${s.status==="PASSED"?'<span class="chip c-ok">Done</span>':s.status==="AT_STATION"?'<span class="chip c-acc">Here</span>':'<span class="chip c-nv">Ahead</span>'}</td></tr>`}).join("");
+  return `<section class="view">${trainPicker("tp")}
+   <div class="panel"><div class="row" style="justify-content:space-between;align-items:flex-start">
+     <div><div class="eyebrow">Train ${esc(st.train_number)} · service date ${esc(st.service_date)}</div><h2>${esc(st.train_name)}</h2></div>
+     <div class="row" style="gap:6px">${stateChip(st.state)}${demoTag(st.is_demo)}</div></div>
+     <dl class="kv" style="margin-top:12px"><dt>Last reported</dt><dd>${esc(lastEv(st))} <span class="chip c-ok" title="Location from the source, not a timetable estimate">Source-reported</span></dd>
+     <dt>Delay</dt><dd>${esc(delayTxt(st.delay_min))}</dd><dt>Previous / next halt</dt><dd class="mono">${esc(st.prev_stop||"—")} → ${esc(st.next_stop||"—")}</dd>
+     <dt>Progress</dt><dd>${st.progress_pct}% · done ${st.completed.length} · ahead ${st.remaining.length}</dd><dt>Freshness</dt><dd>${fresh(st)}</dd></dl>
+     ${st.alerts.map(a=>`<div class="warn" style="margin-top:8px"><b>${esc(a.type)}</b> ${esc(a.station||"")} ${esc(a.detail||"")} · ${esc(a.source)} ${hm(a.source_time)}</div>`).join("")}
+     ${st.warnings.map(w=>`<div class="warn" style="margin-top:8px">${esc(w)}</div>`).join("")}</div>
+   <div class="panel"><h3>Route line</h3><div class="legend"><span><i class="sw" style="background:var(--accent)"></i>Covered (reported)</span><span><i class="sw" style="border:2px dashed var(--line)"></i>Ahead</span><span>● Halt</span><span>| Non-stop</span><span><i class="sw" style="background:var(--amber)"></i>Last reported position</span></div>
+     <div class="diagram">${lineDiagram(route,st)}</div></div>
+   <div class="two"><div class="panel"><h3>Running timetable</h3><div class="tbl"><table><thead><tr><th>Code</th><th>Station</th><th class="n">Day</th><th class="n">Sch arr</th><th class="n">Sch dep</th><th>Actual (source)</th><th class="n">Delay</th><th class="n">PF</th><th>State</th></tr></thead><tbody>${rows}</tbody></table></div>
+     <p class="muted" style="font-size:.8rem">Platform numbers appear only when the source supplies them.</p></div>
+   <div class="panel geo"><h3>Map</h3>${geoMap(route,st)}</div></div></section>`}
+
+function timeAxis(c,now){
+  const ts=[c.scheduled_time,c.est_earliest,c.est_latest,c.est_central,c.event_time,now].filter(Boolean).map(t=>Date.parse(t));
+  if(ts.length<2)return "";const a=Math.min(...ts)-10*6e4,b=Math.max(...ts)+10*6e4,W=900,L=20,R=20,x=t=>L+(Date.parse(t)-a)/(b-a)*(W-L-R);
+  let g=`<svg viewBox="0 0 ${W} 110" role="img" aria-label="Crossing time window">`;
+  g+=`<line x1="${L}" y1="55" x2="${W-R}" y2="55" stroke="var(--line)" stroke-width="2"/>`;
+  for(let t=Math.ceil(a/9e5)*9e5;t<b;t+=9e5){const X=L+(t-a)/(b-a)*(W-L-R);const d=new Date(t+5.5*36e5);
+    g+=`<line x1="${X}" y1="50" x2="${X}" y2="60" stroke="var(--muted)"/><text x="${X}" y="78" text-anchor="middle" font-size="11" font-family="JetBrains Mono,monospace" style="fill:var(--muted)">${String(d.getUTCHours()).padStart(2,"0")}:${String(d.getUTCMinutes()).padStart(2,"0")}</text>`}
+  if(c.est_earliest&&c.est_latest){g+=`<rect x="${x(c.est_earliest)}" y="40" width="${Math.max(3,x(c.est_latest)-x(c.est_earliest))}" height="30" rx="4" fill="var(--amber)" opacity=".28"/>`}
+  if(c.est_central){const X=x(c.est_central);g+=`<line x1="${X}" y1="36" x2="${X}" y2="74" stroke="var(--amber)" stroke-width="3"/><text x="${X}" y="30" text-anchor="middle" font-size="12" font-weight="700" style="fill:var(--amber)">best ${hm(c.est_central)}</text>`}
+  if(c.scheduled_time){const X=x(c.scheduled_time);g+=`<line x1="${X}" y1="44" x2="${X}" y2="66" stroke="var(--muted)" stroke-width="2" stroke-dasharray="3 3"/><text x="${X}" y="100" text-anchor="middle" font-size="11" style="fill:var(--muted)">sched ${hm(c.scheduled_time)}</text>`}
+  if(c.event_time){const X=x(c.event_time);g+=`<circle cx="${X}" cy="55" r="8" fill="var(--ok)"/><text x="${X}" y="30" text-anchor="middle" font-size="12" font-weight="700" style="fill:var(--ok)">reported ${hm(c.event_time)}</text>`}
+  if(now){const X=x(now);g+=`<line x1="${X}" y1="20" x2="${X}" y2="90" stroke="var(--ink)" stroke-width="2"/><text x="${X+4}" y="18" font-size="11" font-weight="700">now</text>`}
+  return `<div class="diagram">${g}</svg></div>`}
+
+async function vCrossing(){
+  let route;try{route=await API.route(S.train)}catch(e){return `<section class="view">${trainPicker("cp")}${errBox(e)}</section>`}
+  if(!route.stops.some(s=>s.code===S.station))S.station=(route.stops.find(s=>!s.halt)||route.stops[1]).code;
+  const r=await API.status(S.train,S.station);const c=r.crossing,st=r.status,now=API.now()||new Date().toISOString();
+  const all=await API.crossings(S.train);const hist=await API.history(S.train,S.station).catch(()=>[]);
+  const opts=route.stops.map(s=>`<option value="${s.code}" ${s.code===S.station?"selected":""}>${s.code} · ${esc(s.name)} — ${s.halt?"halt":"non-stop"}</option>`).join("");
+  const conf=Math.round((c.confidence||0)*100);
+  return `<section class="view">${trainPicker("cp")}
+   <div class="row"><label class="field" style="min-width:min(100%,360px)">Reference station<select id="cStation">${opts}</select></label>
+   <p class="lede" style="margin:0;flex:1;min-width:240px">The engine never marks a station crossed because the timetable time has passed. It needs a source report at the station, or a report from further down the line.</p></div>
+   <div class="panel verdict"><div class="head">${clsChip(c.event_class)}${verChip(c.verification)}${demoTag(c.is_demo)}<span class="spacer"></span><span class="mono muted" style="font-size:.8rem">${esc(S.train)} @ ${esc(c.station_code)}</span></div>
+     <p class="hl">${esc(c.headline)}</p>
+     ${timeAxis(c,now)}
+     <div class="meter"><span class="muted">Confidence</span><div class="bar"><i style="width:${conf}%;background:${conf>=85?"var(--ok)":conf>=50?"var(--amber)":"var(--nv)"}"></i></div><b class="mono">${conf}%</b></div>
+     <dl class="kv"><dt>Method</dt><dd>${esc(c.method||"—")}</dd><dt>Source</dt><dd>${esc(c.source_id||"—")} ${c.source_time?"· updated "+hm(c.source_time):""}</dd></dl>
+     ${c.evidence&&c.evidence.length?`<div><div class="eyebrow">Evidence</div><ul class="ev">${c.evidence.map(e=>`<li class="mono">${esc(e)}</li>`).join("")}</ul></div>`:""}
+     ${(c.warnings||[]).map(w=>`<div class="warn">${esc(w)}</div>`).join("")}</div>
+   <div class="two">
+    ${all?`<div class="panel"><h3>Every station on this run</h3><div class="tbl"><table><thead><tr><th>Station</th><th>Class</th><th>Evidence</th><th class="n">Time</th></tr></thead><tbody>${route.stops.map(s=>{const x=all[s.code];
+      const t=x.event_time?hm(x.event_time):x.est_earliest?`${hm(x.est_earliest)}–${hm(x.est_latest)}`:"—";
+      return `<tr class="${s.halt?"":"pass"}"><td class="mono st">${s.code}</td><td>${clsChip(x.event_class)}</td><td>${verChip(x.verification)}</td><td class="n">${t}</td></tr>`}).join("")}</tbody></table></div></div>`:
+      `<div class="panel"><h3>How to read this</h3><p class="muted">Pick any station on the route. Non-stop stations show a confirmed passage only from a source report.</p></div>`}
+    <div class="panel"><h3>Audit trail</h3><p class="muted" style="font-size:.84rem;margin-top:0">Each change in the engine's verdict for ${esc(S.station)} is kept, so corrections stay visible.</p>
+     <div class="feed">${hist.length?hist.map(h=>`<div class="note"><div class="row"><span class="mono">${hm(h.t)}</span>${clsChip(h.c.event_class)}${verChip(h.c.verification)}</div><div style="font-size:.85rem">${esc(h.c.headline||"")}</div></div>`).join(""):'<p class="empty">No evaluations recorded yet.</p>'}</div></div>
+   </div></section>`}
+
+async function vStation(){
+  const codes=S.mode==="snapshot"?Object.keys(RV_SNAPSHOT.boards):["JP","AWR","RE","GGN","DLI","NDLS"];
+  let b;try{b=await API.board(S.board)}catch(e){b={rows:[],err:e}}
+  const between=API.between();
+  return `<section class="view"><div><div class="eyebrow">Station monitor</div><h2>Departure board</h2></div>
+   <div class="seg">${codes.map(c=>`<button type="button" data-board="${c}" aria-pressed="${c===S.board}">${c}</button>`).join("")}
+    <input id="boardIn" class="mono" maxlength="6" placeholder="Code" style="width:6em;background:var(--bg);border:1px solid var(--line);border-radius:999px;padding:6px 12px"><button class="btn ghost" type="button" id="boardGo">Show</button></div>
+   ${b.err?errBox(b.err):`<div class="board"><div class="bt">${esc(S.board)} ${b.is_demo?"· DEMO":""}</div><table><thead><tr><th>Train</th><th>Name</th><th>Arr</th><th>Dep</th><th>PF</th><th>Stop</th></tr></thead><tbody>
+    ${b.rows.length?b.rows.map(r=>`<tr><td>${esc(r.number)}</td><td>${esc(r.name)}</td><td>${esc(r.sched_arr||"--:--")}</td><td>${esc(r.sched_dep||"--:--")}</td><td>${esc(r.platform||"-")}</td><td>${r.halt?"HALT":"NON-STOP"}</td></tr>`).join(""):`<tr><td colspan="6">NO TRAINS IN WINDOW</td></tr>`}</tbody></table></div>
+   <p class="muted" style="font-size:.8rem">Scheduled times from ${esc(b.source||"source")}. Times are IST (Asia/Kolkata).</p>`}
+   ${between?`<div class="panel"><h3>Trains between JP and DLI</h3><div class="tbl"><table><thead><tr><th>Train</th><th>Name</th><th class="n">Dep</th><th class="n">Arr</th><th class="n">Duration</th><th>Note</th></tr></thead><tbody>
+     ${between.map(r=>`<tr><td class="mono">${r.number}</td><td>${esc(r.name)}</td><td class="n">${hm(r.departure)}</td><td class="n">${hm(r.arrival)}</td><td class="n">${Math.floor(r.duration_min/60)}h${String(r.duration_min%60).padStart(2,"0")}</td><td>${r.scenario==="normal"?"":`<span class="chip ${r.scenario==="cancelled"?"c-bad":"c-amber"}">${r.scenario}</span>`}</td></tr>`).join("")}</tbody></table></div></div>`:""}
+  </section>`}
+
+function bayLayout(cls){return cls==="2A"?{per:6,cols:2,pos:[[0,0],[0,1],[1,0],[1,1],[3,0],[3,1]]}:{per:8,cols:3,pos:[[0,0],[0,1],[0,2],[1,0],[1,1],[1,2],[3,0],[3,1]]}}
+async function vVacancy(){
+  let v,err;try{v=await API.vacancy("90001",S.vac.from,S.vac.cls)}catch(e){err=e}
+  const halts=(RV_SNAPSHOT?RV_SNAPSHOT.routes["90001"]:await API.route("90001").catch(()=>({stops:[]}))).stops.filter(s=>s.halt).slice(0,-1);
+  const ctrl=`<div class="row"><label class="field">Train<input value="90001" disabled class="mono" style="width:7em"></label>
+    <label class="field">Boarding station<select id="vFrom">${halts.map(s=>`<option ${s.code===S.vac.from?"selected":""}>${s.code}</option>`).join("")}</select></label>
+    <label class="field">Class<select id="vCls">${["3A","2A","SL"].map(c=>`<option ${c===S.vac.cls?"selected":""}>${c}</option>`).join("")}</select></label></div>`;
+  const three=`<div class="three"><div class="panel"><div class="eyebrow">1 · Before booking</div><b>Reservation availability</b><p class="muted" style="margin:4px 0 0;font-size:.85rem">Seats you can book. Only via official IRCTC channels.</p></div>
+    <div class="panel" style="border-color:var(--accent)"><div class="eyebrow">2 · After charting · this page</div><b>Post-chart vacancy</b><p class="muted" style="margin:4px 0 0;font-size:.85rem">What the published chart lists as unallotted, for the segment and chart time shown.</p></div>
+    <div class="panel"><div class="eyebrow">3 · On the train</div><b>Physical vacancy</b><p class="muted" style="margin:4px 0 0;font-size:.85rem">Not knowable from a chart. TTE allotments change it.</p></div></div>`;
+  if(err)return `<section class="view"><div><div class="eyebrow">Chart vacancy</div><h2>Vacant berths</h2></div>${ctrl}${three}${errBox(err)}</section>`;
+  const L=bayLayout(v.travel_class);const board=v.boarding_station;
+  const stateOf=b=>{const i=b.segments.findIndex(s=>s.from===board);if(i<0)return "o";const r=b.segments.slice(i);const f=r.filter(s=>!s.occupied).length;return f===r.length?"v":f?"p":"o"};
+  const coaches=v.coaches.map(c=>{const bays=[];for(let i=0;i<c.berths.length;i+=L.per)bays.push(c.berths.slice(i,i+L.per));
+    return `<div class="coach"><div class="row"><b class="mono">${esc(c.coach)}</b><span class="muted" style="font-size:.8rem">${c.berths.length} berths</span></div><div class="bays">${bays.map(bay=>`<div class="bay ${L.cols===2?"b2":""}">${bay.map((b,j)=>{const [r,col]=L.pos[j];const s=stateOf(b);
+      return `<button type="button" class="berth ${s}" style="grid-row:${r+1};grid-column:${col+1}" data-berth="${c.coach}-${b.no}" aria-pressed="${S.vac.sel===c.coach+"-"+b.no}" title="${c.coach} ${b.no} ${b.type}">${b.no}<br>${b.type}</button>`}).join("")}</div>`).join("")}</div></div>`}).join("");
+  let sel="";if(S.vac.sel){const [cc,no]=S.vac.sel.split("-");const b=v.coaches.find(c=>c.coach===cc)?.berths.find(x=>String(x.no)===no);
+    if(b)sel=`<div class="panel"><h3>${esc(cc)} · berth ${b.no} (${b.type})</h3><div class="chips">${b.segments.map(s=>`<span class="chip ${s.occupied?"c-nv":"c-ok"}">${s.from}→${s.to} ${s.occupied?"occupied":"vacant"}</span>`).join("")}</div></div>`}
+  return `<section class="view"><div><div class="eyebrow">Chart vacancy · chart #${v.chart_no} · ${hm(v.source_time)} IST</div><h2>Vacant berths from ${esc(board)}</h2></div>
+   ${ctrl}${v.is_demo?`<div class="banner demo"><b>Synthetic chart.</b> ${esc((v.notes||[]).join(" "))}</div>`:""}
+   ${three}
+   <div class="row"><span class="chip c-ok">${v.summary.vacant_full} vacant to destination</span><span class="chip c-amber">${v.summary.vacant_partial} vacant part-way</span>
+    <span class="legend"><span><i class="sw" style="background:var(--ok)"></i>Free for every segment after ${esc(board)}</span><span><i class="sw" style="background:var(--amber)"></i>Free for some segments</span><span><i class="sw" style="background:var(--nv-soft);border:1px solid var(--line)"></i>Occupied</span></span></div>
+   <div class="panel">${coaches}</div>${sel}
+   <p class="muted" style="font-size:.84rem">${esc(v.disclaimer||"Post-chart vacancy does not guarantee a berth can be booked or is empty onboard.")} Verify on the <a href="${esc(v.official_url)}" target="_blank" rel="noopener">official IRCTC chart page</a>.</p></section>`}
+
+const DEST_LABEL={app:"App",browser:"Browser",android_push:"Android push",email:"Email",whatsapp:"WhatsApp chat",whatsapp_group:"WhatsApp group",whatsapp_channel:"WhatsApp channel",telegram:"Telegram"};
+const DSTAT={SENT:"c-ok",QUEUED_FOR_ADMIN:"c-amber",UNSUPPORTED:"c-nv",SKIPPED:"c-nv",FAILED:"c-bad"};
+function noteHtml(n){const typeCls={CONFIRMED_PASSAGE:"c-ok",COMPLETED:"c-ok",ESTIMATED_CROSSING:"c-amber",DELAY_ALERT:"c-bad",CANCELLED:"c-bad",DIVERTED:"c-bad",STALE:"c-bad"}[n.type]||"c-nv";
+  return `<details class="note"><summary class="row" style="cursor:pointer;list-style:none"><span class="mono muted">${hm(n.at)}</span><span class="chip ${typeCls}">${esc(n.type.replace(/_/g," "))}</span><b style="font-size:.88rem;min-width:0;overflow-wrap:anywhere">${esc(n.title)}</b></summary>
+   <div class="bubble">${esc(n.body)}</div>
+   ${(n.deliveries||[]).length?`<div class="chips">${n.deliveries.map(d=>`<span class="chip ${DSTAT[d.status]||"c-nv"}" title="${esc(d.detail)}">${esc(DEST_LABEL[d.destination]||d.destination)} · ${esc(d.status.replace(/_/g," ").toLowerCase())}</span>`).join("")}</div>`:""}</details>`}
+function taskHtml(t){const sc={ACTIVE:"c-ok",PAUSED:"c-amber",COMPLETED:"c-nv",CANCELLED:"c-nv",PENDING_CONFIRMATION:"c-amber"}[t.status]||"c-nv";
+  const live=S.mode==="server";
+  return `<div class="note"><div class="row" style="justify-content:space-between"><b class="mono">${esc(t.train_number)} @ ${esc(t.reference_station)} → ${esc(t.end_station||"end")}</b><span class="chip ${sc}">${esc(t.status.replace(/_/g," "))}</span></div>
+   <div class="muted" style="font-size:.84rem">Every ${t.interval_min} min${t.delay_threshold_min!=null?` · alert above ${t.delay_threshold_min} min late`:""} · to ${(t.destinations||[]).map(d=>DEST_LABEL[d]||d).join(", ")}</div>
+   ${t.last_crossing?`<div style="font-size:.85rem">${esc(t.last_crossing)}</div>`:""}
+   ${live?`<div class="row" style="gap:6px">${t.status==="PENDING_CONFIRMATION"?`<button class="btn" data-task="${t.id}" data-act="confirm">Start tracking</button>`:""}
+     ${t.status==="ACTIVE"?`<button class="btn ghost" data-task="${t.id}" data-act="pause">Pause</button>`:""}${t.status==="PAUSED"?`<button class="btn ghost" data-task="${t.id}" data-act="resume">Resume</button>`:""}
+     ${["ACTIVE","PAUSED","PENDING_CONFIRMATION"].includes(t.status)?`<button class="btn ghost" data-task="${t.id}" data-act="cancel">Stop</button>`:""}
+     <button class="btn ghost" data-task="${t.id}" data-act="delete">Delete</button></div>`:""}</div>`}
+
+async function vAlerts(){
+  const [tasks,notes,src]=await Promise.all([API.tasks().catch(()=>[]),API.notifications().catch(()=>[]),API.sources().catch(()=>({destinations:[]}))]);
+  const live=S.mode==="server";const avail=Object.fromEntries((src.destinations||[]).map(d=>[d.name,d]));
+  const destBoxes=Object.keys(DEST_LABEL).map(d=>{const a=avail[d];const ok=d==="app"||(a&&a.available);
+    return `<label class="row" style="gap:6px;font-size:.86rem" title="${esc(a?a.reason:"")}"><input type="checkbox" name="dest" value="${d}" ${d==="app"?"checked disabled":""}> ${DEST_LABEL[d]} ${ok?"":'<span class="chip c-nv">not set up</span>'}</label>`}).join("");
+  const form=`<form id="taskForm" class="panel" style="display:grid;gap:12px"><h3>New tracking task</h3>
+    ${live?"":`<div class="banner demo">The offline replay can't create tasks. Run the RAILVISION server to create, pause and stop them. The two tasks below were created by the engine at 06:15 and ticked every 5 minutes.</div>`}
+    <div class="row"><label class="field">Train<input id="fTrain" class="mono" maxlength="5" inputmode="numeric" value="${esc(S.train)}" style="width:7em" required></label>
+    <label class="field">Watch station<input id="fRef" class="mono" maxlength="6" value="RE" style="width:6em" required></label>
+    <label class="field">Until<input id="fEnd" class="mono" maxlength="6" value="DLI" style="width:6em"></label>
+    <label class="field">Every (min)<input id="fInt" type="number" min="5" max="240" value="15" style="width:6em"></label>
+    <label class="field">Delay alert (min)<input id="fThr" type="number" min="1" max="1440" placeholder="off" style="width:7em"></label></div>
+    <fieldset style="border:0;padding:0;margin:0;display:flex;flex-wrap:wrap;gap:12px"><legend class="eyebrow" style="margin-bottom:6px">Send updates to</legend>${destBoxes}</fieldset>
+    <div class="row"><button class="btn" type="submit" ${live?"":"disabled"}>Review task</button><span id="fMsg" class="muted" style="font-size:.86rem"></span></div></form>`;
+  return `<section class="view"><div><div class="eyebrow">Persistent monitoring</div><h2>Tracking & alerts</h2>
+   <p class="lede">Tasks run on the server, so updates keep coming with the app closed. One upstream check serves every task on the same train. Each alert is sent once.</p></div>
+   <div class="two"><div style="display:grid;gap:14px;min-width:0">${form}<div class="panel"><h3>Tasks</h3>${tasks.length?tasks.map(taskHtml).join(""):'<p class="empty">No tasks yet.</p>'}</div></div>
+   <div class="panel" style="min-width:0"><h3>Alert feed</h3><p class="muted" style="font-size:.84rem;margin-top:0">Tap an alert to see the exact message and what each channel did with it.</p><div class="feed">${notes.map(noteHtml).join("")||'<p class="empty">No alerts yet.</p>'}</div></div></div></section>`}
+
+const SAMPLES=["where is 90001","does 90001 stop at Rewari?","has it crossed Rewari?","90001 kahan hai","रेवाड़ी पार हुई?","track 90001 from Rewari to Delhi every 15 min","yes","alert me if the delay exceeds 30 minutes","pause this tracking","chart vacancy 90001 3A from Jaipur Junction","where is 90002","where is 12951"];
+function vAssistant(){
+  const log=S.chat.map(m=>`<div class="msg ${m.me?"me":"bot"}">${esc(m.text)}</div>`).join("")||`<p class="empty">Ask in English, हिंदी or Hinglish. Answers come from the data source, with its timestamp.</p>`;
+  return `<section class="view"><div><div class="eyebrow">Assistant</div><h2>Ask about a train</h2></div>
+   ${S.mode==="snapshot"?`<div class="banner demo">Offline replay: these sample questions were answered by the real assistant at 09:15 on the scenario clock. Connect to a RAILVISION server to ask anything.</div>`:""}
+   <div class="panel" style="display:grid;gap:12px"><div class="chat" id="chatLog" aria-live="polite">${log}</div>
+    <div class="chips">${SAMPLES.map(q=>`<button type="button" data-ask="${esc(q)}">${esc(q)}</button>`).join("")}</div>
+    <form id="chatForm" class="row"><label for="chatIn" class="muted" style="position:absolute;left:-9999px">Message</label><input id="chatIn" autocomplete="off" placeholder="e.g. 12951 Rewari cross hui?" style="flex:1;min-width:0;background:var(--bg);border:1px solid var(--line);border-radius:999px;padding:9px 14px">
+    <button class="btn" type="submit">Send</button></form></div></section>`}
+
+async function vSources(){
+  const s=await API.sources();
+  const lab=a=>{const t=String(a);return t.startsWith("VERIFIED")?"c-ok":t.startsWith("REQUIRES THIRD")?"c-amber":t.startsWith("REQUIRES")?"c-amber":t.startsWith("MANUAL")?"c-acc":"c-nv"};
+  const rows=s.matrix.map(m=>`<tr><td><b>${esc(m.source)}</b><div class="muted" style="font-size:.78rem">${esc(m.status)}</div>${m.url?`<a href="${esc(m.url)}" target="_blank" rel="noopener" style="font-size:.78rem">official page</a>`:""}</td><td>${esc(m.fields)}</td><td>${esc(m.auth)}</td><td>${esc(m.terms)}</td><td><span class="chip ${lab(m.approval)}" style="white-space:normal">${esc(m.approval)}</span></td><td style="font-size:.8rem">${esc(m.tests)}</td></tr>`).join("");
+  const wa=[["Personal chat","Supported through Meta's WhatsApp Cloud API. Users opt in by messaging first. Free text inside 24 hours of their last message, approved templates after that.","c-amber","Needs Meta business setup"],
+    ["Groups","Meta's Groups API is limited to Official Business Accounts, groups the business creates itself, up to 8 people. It can't post into an existing family or office group.","c-amber","Needs OBA status"],
+    ["Channels","No official API publishes to a Channel. RAILVISION writes a ready-to-paste post for the channel admin instead. Telegram covers automatic group broadcast.","c-nv","Manual post queue"]];
+  return `<section class="view"><div><div class="eyebrow">Checked ${esc(s.checked||"")}</div><h2>Data sources & delivery</h2>
+   <p class="lede">What is connected, what needs approval, and what was actually tested. Nothing here bypasses captchas, logins or bot protection.</p></div>
+   <div class="three">${wa.map(w=>`<div class="panel cap"><div class="row" style="justify-content:space-between"><b>WhatsApp · ${w[0]}</b><span class="chip ${w[2]}">${w[3]}</span></div><p class="muted" style="margin:0;font-size:.86rem">${w[1]}</p></div>`).join("")}</div>
+   <div class="panel"><h3>Source capability matrix</h3><div class="tbl"><table style="min-width:900px"><thead><tr><th>Source</th><th>Data</th><th>Access</th><th>Terms</th><th>Status</th><th>Tests</th></tr></thead><tbody>${rows}</tbody></table></div></div>
+   <div class="two"><div class="panel"><h3>Delivery channels on this server</h3>${(s.destinations||[]).map(d=>`<div class="row" style="justify-content:space-between;border-top:1px solid var(--line);padding:6px 0"><span>${esc(DEST_LABEL[d.name]||d.name)}</span><span class="chip ${d.available?"c-ok":"c-nv"}" title="${esc(d.reason)}">${d.available?"ready":"not set up"}</span></div>`).join("")}</div>
+   <div class="panel"><h3>Source health</h3>${(s.health||[]).map(h=>`<div class="row" style="justify-content:space-between;border-top:1px solid var(--line);padding:6px 0"><span class="mono">${esc(h.source_id)}</span><span class="chip ${h.status==="OK"?"c-ok":h.status==="MANUAL"?"c-acc":h.status==="DOWN"?"c-bad":"c-amber"}">${esc(h.status)}</span></div>`).join("")}</div></div></section>`}
+
+function vSettings(){
+  const live=S.mode==="server";
+  return `<section class="view"><div><div class="eyebrow">Settings</div><h2>Preferences</h2></div>
+   <div class="grid">
+    <div class="panel"><h3>Appearance</h3><div class="seg" role="group" aria-label="Theme">${["system","light","dark"].map(t=>`<button type="button" data-theme-set="${t}" aria-pressed="${S.theme===t}">${t[0].toUpperCase()+t.slice(1)}</button>`).join("")}</div></div>
+    <div class="panel"><h3>Low-bandwidth mode</h3><p class="muted" style="font-size:.86rem;margin-top:0">Hides the map and slows refresh to every 2 minutes.</p><label class="row" style="gap:8px"><input type="checkbox" id="lowbw" ${S.lowbw?"checked":""}> Use low-bandwidth mode</label></div>
+    <div class="panel"><h3>Browser notifications</h3><p class="muted" style="font-size:.86rem;margin-top:0">Show alerts as system notifications while this page is open.</p><button class="btn ghost" type="button" id="notifBtn" ${live?"":"disabled"}>Allow notifications</button> <span id="notifMsg" class="muted" style="font-size:.84rem"></span></div>
+    <div class="panel"><h3>Link WhatsApp</h3><p class="muted" style="font-size:.86rem;margin-top:0">Get a one-time code, then send <span class="mono">LINK &lt;code&gt;</span> to the RAILVISION WhatsApp number. Reply STOP there to unsubscribe.</p><button class="btn ghost" type="button" id="linkBtn" ${live?"":"disabled"}>Get link code</button> <b class="mono" id="linkCode"></b></div>
+    <div class="panel"><h3>About this data</h3><p class="muted" style="font-size:.86rem;margin:0">Mode: <b>${esc(S.mode==="snapshot"?"offline demo replay":S.mode==="server"?("server · "+S.serverMode):"no server reachable")}</b>. Demo data is synthetic and always labelled. Live mode refuses demo data entirely.</p></div>
+   </div></section>`}
+
+/* ---------------- shell ---------------- */
+const RENDER={overview:vOverview,train:vTrain,crossing:vCrossing,station:vStation,vacancy:vVacancy,alerts:vAlerts,assistant:vAssistant,sources:vSources,settings:vSettings};
+let renderSeq=0;
+async function render(){const seq=++renderSeq;const m=$("#main");
+  try{const html=await RENDER[S.view]();if(seq!==renderSeq)return;
+    const open=[...m.querySelectorAll("details[open] summary")].map(s=>s.textContent);
+    m.innerHTML=html;m.querySelectorAll("details summary").forEach(s=>{if(open.includes(s.textContent))s.parentElement.open=true});
+    const log=$("#chatLog");if(log)log.scrollTop=log.scrollHeight;
+  }catch(e){m.innerHTML=`<section class="view">${errBox(e)}</section>`}}
+function tabs(){$("#tabs").innerHTML=VIEWS.map(([k,l])=>`<button class="tab" role="tab" type="button" data-view="${k}" aria-selected="${k===S.view}"><i class="asp"></i>${l}</button>`).join("")}
+function go(v){S.view=v;tabs();render();try{history.replaceState(null,"","#"+v)}catch(e){}}
+
+function applyTheme(){const r=document.documentElement;if(S.theme==="system")r.removeAttribute("data-theme");else r.setAttribute("data-theme",S.theme);$("#themeBtn").textContent="Theme: "+S.theme;
+  document.body.classList.toggle("lowbw",S.lowbw)}
+function tickClock(){const t=S.mode==="snapshot"?hm(API.now()):new Intl.DateTimeFormat("en-GB",{hour:"2-digit",minute:"2-digit",timeZone:"Asia/Kolkata"}).format(new Date());
+  $("#clock").textContent=t+" IST"+(S.mode==="snapshot"?" (scenario)":"")}
+async function header(){const p=$("#modePill");
+  if(S.mode==="snapshot"){p.className="modepill demo";p.textContent="Demo · synthetic data"}
+  else if(S.mode==="server"){p.className="modepill "+(S.serverMode==="live"?"live":"demo");p.textContent=S.serverMode==="live"?"Live sources":"Demo · synthetic data"}
+  else{p.className="modepill off";p.textContent="No server"}
+  try{const s=await API.sources();$("#health").innerHTML=(s.health||[]).map(h=>`<span title="${esc(h.source_id)}: ${esc(h.status)}"><i class="dot ${h.status==="OK"?"ok":h.status==="DOWN"?"bad":h.status==="MANUAL"?"":"warn"}"></i></span>`).join("")+`<span>sources</span>`}catch(e){}}
+
+async function ask(q){if(!q.trim())return;S.chat.push({me:true,text:q});
+  if(S.mode==="snapshot"){const hit=RV_SNAPSHOT.chat.find(c=>c.q.toLowerCase()===q.trim().toLowerCase());
+    S.chat.push({text:hit?hit.reply:"This offline replay only has answers for the sample questions. Run the RAILVISION server for the full assistant."})}
+  else if(S.mode==="server"){try{const r=await API.post("/api/chat",{text:q,session_id:"dash"});S.chat.push({text:r.reply})}catch(e){S.chat.push({text:"⚠️ "+e.message})}}
+  else S.chat.push({text:"No server reachable."});render()}
+
+document.addEventListener("click",async e=>{const t=e.target.closest("button,[data-open]");if(!t)return;const d=t.dataset;
+  if(d.view)return go(d.view);
+  if(d.open){S.train=d.open;store.set("train",S.train);return go("train")}
+  if(d.pick){S.train=d.no;store.set("train",S.train);return render()}
+  if(d.go){const v=($("#"+d.go+"In")||{}).value||"";if(/^\d{5}$/.test(v)){S.train=v;store.set("train",v);if(!S.saved.includes(v)&&S.mode==="server"){S.saved.push(v);store.set("saved",S.saved)}render()}return}
+  if(d.board){S.board=d.board;return render()}
+  if(t.id==="boardGo"){const v=($("#boardIn").value||"").toUpperCase().trim();if(v){S.board=v;render()}return}
+  if(d.berth){S.vac.sel=S.vac.sel===d.berth?null:d.berth;return render()}
+  if(d.ask)return ask(d.ask);
+  if(d.themeSet){S.theme=d.themeSet;store.set("theme",S.theme);applyTheme();return render()}
+  if(t.id==="themeBtn"){const o=["system","light","dark"];S.theme=o[(o.indexOf(S.theme)+1)%3];store.set("theme",S.theme);applyTheme();if(S.view==="settings")render();return}
+  if(d.task){try{if(d.act==="delete")await API.post(`/api/tasks/${d.task}`,null,true,"DELETE");else await API.post(`/api/tasks/${d.task}/${d.act}`,null)}catch(err){alertMsg(err.message)}return render()}
+  if(t.id==="playBtn")return togglePlay();
+  if(t.id==="linkBtn"){try{const r=await API.post("/api/whatsapp/link-code",{});$("#linkCode").textContent=r.code}catch(err){$("#linkCode").textContent=err.message}return}
+  if(t.id==="notifBtn"){if(!("Notification" in window)){$("#notifMsg").textContent="Not supported in this browser.";return}
+    const p=await Notification.requestPermission().catch(()=>"denied");$("#notifMsg").textContent=p==="granted"?"On while this page is open.":"Permission not granted.";return}
+});
+function alertMsg(m){const x=$("#fMsg");if(x)x.textContent=m}
+document.addEventListener("change",e=>{const t=e.target;
+  if(t.id==="cStation"){S.station=t.value;store.set("cstation",S.station);render()}
+  if(t.id==="vFrom"){S.vac.from=t.value;S.vac.sel=null;render()}
+  if(t.id==="vCls"){S.vac.cls=t.value;S.vac.sel=null;render()}
+  if(t.id==="lowbw"){S.lowbw=t.checked;store.set("lowbw",S.lowbw);applyTheme();restartPoll()}
+  if(t.id==="scrub"){S.frame=+t.value;$("#scrubT").textContent=hm(API.now());tickClock();render()}});
+document.addEventListener("input",e=>{if(e.target.id==="scrub"){S.frame=+e.target.value;$("#scrubT").textContent=hm(API.now());tickClock();render()}});
+document.addEventListener("submit",async e=>{e.preventDefault();const f=e.target;
+  if(f.id==="chatForm"){const i=$("#chatIn");const q=i.value;i.value="";return ask(q)}
+  if(f.id==="taskForm"&&S.mode==="server"){const dests=["app",...[...f.querySelectorAll("input[name=dest]:checked")].map(x=>x.value).filter(x=>x!=="app")];
+    const body={train_number:$("#fTrain").value.trim(),reference_station:$("#fRef").value.trim().toUpperCase(),end_station:$("#fEnd").value.trim().toUpperCase()||null,
+      interval_min:+$("#fInt").value,destinations:dests};const thr=$("#fThr").value;if(thr)body.delay_threshold_min=+thr;
+    try{const t=await API.post("/api/tasks",body);const s=t.summary;alertMsg(`Review: ${s.train} · ${s.reference_station} · every ${s.interval_min} min. Press "Start tracking" on the task to confirm.`);
+      setTimeout(render,50)}catch(err){alertMsg(err.message)}}});
+
+function togglePlay(){const b=$("#playBtn");if(S.playing){clearInterval(S.playing);S.playing=null;b.textContent="Play";return}
+  b.textContent="Pause";S.playing=setInterval(()=>{if(S.frame>=RV_SNAPSHOT.frames.length-1){togglePlay();return}S.frame++;$("#scrub").value=S.frame;$("#scrubT").textContent=hm(API.now());tickClock();render()},1600)}
+
+let poll=null;function restartPoll(){clearInterval(poll);if(S.mode!=="server")return;poll=setInterval(()=>{if(!document.hidden&&["overview","train","crossing","alerts"].includes(S.view))render()},S.lowbw?120000:30000)}
+function sse(){if(S.mode!=="server"||!S.token||!("EventSource" in window))return;try{const es=new EventSource("/api/events?token="+encodeURIComponent(S.token));
+  es.addEventListener("notification",ev=>{const d=JSON.parse(ev.data);if(window.Notification&&Notification.permission==="granted")new Notification(d.title,{body:d.short||""});if(["overview","alerts"].includes(S.view))render()})}catch(e){}}
+
+(async function boot(){
+  const h=(location.hash||"").slice(1);if(VIEWS.some(v=>v[0]===h))S.view=h;
+  applyTheme();tabs();await API.init();
+  if(S.mode==="snapshot"){const r=$("#replay");r.hidden=false;const sc=$("#scrub");sc.max=RV_SNAPSHOT.frames.length-1;sc.value=S.frame;$("#scrubT").textContent=hm(API.now())}
+  await header();tickClock();setInterval(tickClock,15000);render();restartPoll();sse();
+  if(S.mode==="server"&&"serviceWorker" in navigator){navigator.serviceWorker.register("sw.js").catch(()=>{})}
+})();
+})();
+</script>

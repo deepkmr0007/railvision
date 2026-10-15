@@ -1,0 +1,3 @@
+# Core runs on the Python 3.11+ standard library. These are only for the production ASGI server:
+fastapi>=0.110
+uvicorn[standard]>=0.29

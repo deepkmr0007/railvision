@@ -1,0 +1,7 @@
+# Automatic HTTPS (TLS) in front of the API. Replace the domain.
+railvision.example.in {
+  encode gzip
+  reverse_proxy api:8000 {
+    flush_interval -1   # stream Server-Sent Events
+  }
+}

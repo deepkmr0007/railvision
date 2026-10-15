@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.db
+*.db-*
+.env
+config/provider.json
+assist_data/
+captures/
+*.log
+.venv/
+node_modules/
+dist/*.png

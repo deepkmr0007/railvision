@@ -1,0 +1,3 @@
+{"name":"RAILVISION AI","short_name":"RAILVISION","start_url":"./","display":"standalone",
+ "background_color":"#0A111E","theme_color":"#0A111E","description":"Indian Railways live intelligence: running status, non-stop crossing, chart vacancy and alerts.",
+ "icons":[{"src":"icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]}

@@ -1,0 +1,410 @@
+RAILVISION AI — INDIAN RAILWAYS LIVE INTELLIGENCE COMMAND CENTER
+MASTER BUILD PROMPT + WHATSAPP BOT INTEGRATION
+Version: 2.0 | Date: 14 October 2026
+
+====================================================================
+1. MISSION
+====================================================================
+
+Act as an elite multidisciplinary product and engineering team: AI systems architect, senior Android/web/backend engineers, Indian Railways domain researcher, real-time data engineer, geospatial engineer, WhatsApp integration engineer, UI/UX designer, security engineer, and QA/reliability engineer.
+
+Build RAILVISION AI: a high-quality Indian Railways information platform for train running status, routes, station events, non-stop station crossing, chart vacancy, reservation availability where authorized, recurring monitoring, and a conversational chatbot. Provide a futuristic command-center dashboard and optional Android app.
+
+Do not stop at a concept or static mockup. Research source availability and access rules, implement the working parts, test them, and clearly list dependencies that require credentials, approval, or external services. Do not invent live information or claim an integration works before testing it.
+
+====================================================================
+2. USER-PROVIDED REFERENCE SOURCES
+====================================================================
+
+Official/public reference pages supplied by the project owner:
+
+1. IRCTC Train Class Vacant Berth:
+   https://www.irctc.co.in/online-charts/trainclassvacantberth
+
+2. IRCTC Charts/Vacancy:
+   https://www.irctc.co.in/online-charts/
+
+3. NTES — National Train Enquiry System:
+   https://enquiry.indianrail.gov.in/mntes/
+
+Investigate these pages and their current official documentation, network/API behavior where permitted, terms of use, access controls, robots/access policies, rate limits, and any official integration process.
+
+Do not assume that public browser access equals permission for unrestricted automated scraping, API redistribution, or commercial use. Prefer documented/authorized APIs, official feeds, agreements, or approved providers. Do not bypass CAPTCHA, login, access controls, anti-bot protections, or rate limits. If the public website does not provide a documented public API, document the limitation and create an adapter interface for an authorized source.
+
+Use a source capability matrix. For every source record:
+- Official or third-party status.
+- Supported data fields.
+- National coverage.
+- Actual update frequency.
+- Data timestamp and known freshness.
+- Authentication and access requirements.
+- Usage/licensing and redistribution terms.
+- Costs, quotas, rate limits, and failure modes.
+- Production approval status.
+- Tests performed and evidence of successful responses.
+
+Separate verified facts from assumptions. Keep the application useful in development with clearly labelled synthetic fixtures, but never mix demo data into production live results.
+
+====================================================================
+3. REQUIRED PRODUCT MODULES
+====================================================================
+
+A. Live train running status
+- Train number/name search.
+- Scheduled route and stops.
+- Latest reported operational location/event.
+- Previous and next scheduled stops.
+- Scheduled and actual arrival/departure times where available.
+- Delay, cancellations, diversion, rescheduling and short termination when reported.
+- Platform number only when the source supplies it.
+- Last updated time, source, freshness and confidence.
+- Route progress, completed route and remaining route.
+- Distinguish actual reported location from timetable-derived estimate.
+
+B. Station monitor
+- Search by station name/code.
+- Supported live arrivals/departures.
+- Train event history and relevant service alerts.
+- Clear status for unavailable or stale data.
+- Station timezone/date handling; use Asia/Kolkata for Indian railway events.
+
+C. Route and train discovery
+- Trains between two stations and on a selected date where supported.
+- Route sequence and scheduled stops.
+- Train comparison by departure, arrival, duration and reported delay.
+- Search ambiguity resolution for duplicate station names and station codes.
+
+D. Chart vacancy / vacant berth
+Use the supplied IRCTC Charts/Vacancy references as the first research target. Where the authorized source exposes it, support:
+- Train number and journey date.
+- Boarding/charting station.
+- Class and coach.
+- Vacant berths shown in the chart.
+- Berth-wise status and occupancy over portions of a journey.
+- First/second chart information if available.
+- Source timestamp and station/segment applicability.
+- Coach-layout visualisation where data is available.
+- Link to the official source for verification.
+
+Keep these concepts separate:
+1. Pre-booking reservation availability.
+2. Post-chart vacant accommodation.
+3. Actual physical vacancy onboard.
+
+Never imply that chart vacancy guarantees that a berth can be booked or remains vacant. Show only what the source provides and explain the applicable segment and timestamp. Do not create fake berth data. Booking must go through an authorized official workflow unless a permitted booking integration is approved.
+
+E. Premium command-center dashboard
+- Responsive desktop, tablet and mobile layouts.
+- Dark and light themes.
+- Elegant high-contrast typography and accessible controls.
+- Main overview, live map, train search, station monitor, chart vacancy, saved trains, alerts, chatbot, reports, settings.
+- Train status cards, event timeline, route progress, freshness badges and source-health indicators.
+- Interactive map using a suitably licensed mapping provider.
+- No random animated train markers or fake live counters.
+- Fast loading, map clustering, responsive layout and graceful low-bandwidth mode.
+
+====================================================================
+4. CRITICAL FEATURE: NON-STOP STATION CROSSING
+====================================================================
+
+Allow the user to monitor a train between two stations even when the first/reference station is not a scheduled halt.
+
+Example:
+“Track train 12951 from Rewari to Delhi. Check every 15 minutes. Report when it passes Rewari even if it does not stop there, and continue until Delhi.”
+
+Support three distinct event classes:
+
+1. SCHEDULED HALT
+   The train is scheduled to stop. Show scheduled and actual times where available.
+
+2. CONFIRMED PASSAGE
+   The train passes a station without a scheduled halt and a trustworthy source supplies sufficiently granular position or passage evidence. Store source, event timestamp, received timestamp and method.
+
+3. ESTIMATED CROSSING
+   No confirmed crossing evidence is available. Estimate only when route sequence, latest verified observation and defensible travel-time assumptions support it. Label as ESTIMATED and provide a range/uncertainty when appropriate.
+
+Never infer physical crossing merely because a scheduled time has passed. If evidence is insufficient, report “Crossing not verified” and continue monitoring.
+
+Store:
+- Train and service date.
+- Station code/name.
+- Event class.
+- Scheduled time if relevant.
+- Confirmed passage timestamp or estimated time/range.
+- Data source and source timestamp.
+- Confidence/verification status.
+- Calculation method/version.
+- Audit history of corrections.
+
+Handle route diversions, reversed train direction, midnight, cancelled trains, stale updates, skipped stops, duplicate observations and out-of-order events.
+
+====================================================================
+5. CHATBOT AND TRACKING TASKS
+====================================================================
+
+Build an English/Hindi/Hinglish conversational assistant. It must use backend tools and structured results rather than model memory for live facts.
+
+Example commands:
+- “Where is train 12951 now?”
+- “Has it crossed Rewari?”
+- “Does this train stop at Rewari?”
+- “Estimate when it will cross this station.”
+- “Track this train every 15 minutes until Delhi.”
+- “Alert me if the delay exceeds 30 minutes.”
+- “Show chart vacancy from my boarding station.”
+- “Pause this tracking.”
+- “Change the interval to 30 minutes.”
+- “Stop updates for this train.”
+
+The bot should resolve train/station/date ambiguity and ask a short follow-up when a required value is missing. Before enabling a persistent task, summarize the train, service date, reference station, endpoint, interval, data availability and delivery destination; require confirmation when needed.
+
+Tracking tasks must persist on the server when the app is closed, subject to service availability and source limitations. Support create, pause, resume, update, cancel and delete. Apply provider rate limits, shared polling, caching, exponential backoff and notification deduplication. Do not create an independent upstream poll for every user when one shared observation can serve multiple subscribers.
+
+====================================================================
+6. WHATSAPP DELIVERY: PERSONAL, GROUPS, CHANNELS
+====================================================================
+
+Create a modular WhatsApp delivery adapter. Research the current official Meta WhatsApp Business Platform/Cloud API documentation and the current capabilities and eligibility rules for one-to-one messages, groups, and channels. Do not assume the same API supports all three.
+
+A. PERSONAL / ONE-TO-ONE MESSAGES
+- Support opt-in users through the official WhatsApp Business Platform/Cloud API or a properly authorized provider.
+- Implement inbound webhook verification and message processing.
+- Allow users to start a chat, link their account to RAILVISION, create a tracking task, set an interval, choose a destination and stop notifications.
+- Respect consent, opt-out, approved message templates where required, business messaging rules, session windows, rate limits and applicable charges.
+- Provide a `/help` equivalent and simple natural-language commands.
+- Never send unsolicited messages to scraped or purchased phone lists.
+
+B. WHATSAPP GROUPS
+- Research official group-messaging API availability and eligibility at implementation time. Some group capabilities may be restricted to qualifying business accounts, group sizes, or approved access.
+- If the official API is available and the project qualifies, implement it using official documented endpoints.
+- If the project is not eligible, do not pretend ordinary Cloud API can freely post into any existing WhatsApp group.
+- Offer practical compliant alternatives: opt-in individual recipients, a Telegram group bot, email, in-app notifications, or an admin-operated channel workflow.
+- Do not use unofficial WhatsApp Web automation, session-cookie extraction, QR-session hijacking, or brittle libraries that impersonate a user client for production.
+- Group messages should be concise, configurable, rate-limited, and only sent to groups where the integration is authorized.
+
+C. WHATSAPP CHANNELS
+- Research whether an official, supported API exists for programmatically publishing Channel updates and whether this account/project is eligible.
+- If no supported API is available, provide a safe fallback: generate copy-ready update text for a channel admin to publish manually, or use an approved third-party service only after validating its legitimacy and permissions.
+- Do not promise automatic channel publishing without a verified supported integration.
+- Channels are primarily broadcast-style; design two-way commands through a personal chat or web dashboard instead.
+
+D. DELIVERY DESTINATIONS
+Let each tracking task choose one or more supported destinations:
+- RAILVISION app.
+- Browser notifications.
+- Android push.
+- Email.
+- WhatsApp personal chat, when authorized.
+- WhatsApp group, only if supported and approved.
+- WhatsApp Channel, only if an official/authorized publishing route is verified.
+- Telegram bot/group as an optional practical group-broadcast alternative.
+
+E. MESSAGE TYPES
+- Periodic running-status report.
+- Confirmed non-stop passage.
+- Estimated crossing, clearly labelled.
+- Delay threshold alert.
+- Cancellation/diversion.
+- Chart vacancy change only if the authorized source supports monitoring.
+- Data stale/source unavailable warning.
+- Tracking completed.
+
+F. WHATSAPP MESSAGE EXAMPLE
+“🚆 RAILVISION AI — TRAIN UPDATE
+Train: [verified train number and name]
+Service date: [date]
+Reference station: [station]
+Event: [CONFIRMED PASSAGE / ESTIMATED CROSSING / SCHEDULED HALT]
+Event time: [time or estimated range]
+Delay: [verified value or Unknown]
+Next scheduled stop: [station, if verified]
+Last source update: [timestamp]
+Source: [source name]
+Status: [Active / Completed / Data temporarily unavailable]
+Open dashboard: [configured app URL]”
+
+All bracketed fields must be populated from validated live records. Never send demo values as live data.
+
+====================================================================
+7. DATA PROVIDER AND INTEGRATION POLICY
+====================================================================
+
+Start by investigating:
+- NTES: https://enquiry.indianrail.gov.in/mntes/
+- IRCTC Charts/Vacancy: https://www.irctc.co.in/online-charts/
+- IRCTC vacant berth page: https://www.irctc.co.in/online-charts/trainclassvacantberth
+
+Also check official Indian Railways/CRIS documentation, government open-data resources and licensed/authorized providers. Validate access conditions and whether programmatic use is permitted. Record date and evidence for every integration decision.
+
+Use provider adapters with normalized internal interfaces such as:
+- get_train_status(train_number, service_date)
+- get_train_route(train_number, service_date)
+- get_station_board(station_code, time_window)
+- find_trains_between(from_station, to_station, date)
+- get_chart_vacancy(train_number, journey_date, boarding_station, class)
+- get_reservation_availability(parameters)
+- get_source_health()
+
+These are internal adapter contracts, not claims that such official endpoints exist.
+
+Use source-specific refresh policies. Never bypass CAPTCHA, login, access controls, anti-bot measures, rate limits or licensing. If automated access is not authorized, use the official page as a user-directed link and leave the adapter ready for an approved provider.
+
+====================================================================
+8. TECHNICAL ARCHITECTURE
+====================================================================
+
+Choose final technologies after a short feasibility review. A strong candidate architecture:
+
+Frontend:
+- Android: Kotlin + Jetpack Compose.
+- Web: React + TypeScript.
+- Mapping: MapLibre or another licensed provider.
+
+Backend:
+- Python + FastAPI, or equivalent.
+- PostgreSQL + PostGIS.
+- Redis for cache, throttling and short-lived state.
+- Persistent job queue and workers for scheduled monitoring.
+- WebSockets or server-sent events for browser updates.
+- Secure webhooks for messaging integrations.
+
+AI:
+- Tool-calling model for intent parsing and explanation.
+- Deterministic service functions for live facts and time calculations.
+- Structured JSON schemas for tracking-task creation.
+- Retrieval for official documentation.
+- Optional local model for privacy-sensitive tasks.
+
+Core entities:
+Train, Station, Route, ScheduledStop, LiveObservation, PassageEvent, Prediction, ChartVacancySnapshot, TrackingTask, Subscription, Notification, DataSource, WhatsAppAccountLink, DeliveryAttempt, ConsentRecord, AuditEvent.
+
+Each observation should record:
+- Source identifier.
+- Source timestamp.
+- Retrieval timestamp.
+- Service date.
+- Verification class.
+- Freshness.
+- Quality/confidence.
+- Normalized payload or selected fields.
+- Trace/correlation ID.
+
+====================================================================
+9. SECURITY AND PRIVACY
+====================================================================
+
+- HTTPS/TLS for all network traffic.
+- Secrets in environment-specific secret storage, never committed to source control.
+- Verify Meta webhook signatures and challenge tokens correctly.
+- Authenticate and authorize user tracking tasks.
+- Prevent one user from accessing another user's task or phone details.
+- Rate-limit chatbot and webhook endpoints.
+- Protect against injection, replay attacks, spoofed callbacks and abuse.
+- Minimize retention of phone numbers and message bodies.
+- Record consent and support unsubscribe/delete requests.
+- Never log access tokens, API secrets or unnecessary passenger data.
+- Never request IRCTC passwords or store booking credentials in plaintext.
+- Use least privilege, dependency scanning, audit logs and backup/restore tests.
+- Ask for approval before paid API use, sending campaigns, or production deployment.
+
+====================================================================
+10. RECOMMENDED BUILD PHASES
+====================================================================
+
+Phase 1 — Feasibility:
+- Inspect the supplied official pages and current documentation.
+- Build the data-source matrix.
+- Confirm what is accessible programmatically and under which terms.
+- Investigate WhatsApp personal, group and channel capabilities separately.
+- Identify required accounts, permissions, costs and approvals.
+
+Phase 2 — Foundation:
+- Repository, backend, database, migrations and API contracts.
+- Premium responsive dashboard.
+- Train/station search.
+- Demo mode clearly marked.
+
+Phase 3 — First real integration:
+- Integrate one approved source.
+- Show actual data with freshness/source labels.
+- Implement graceful errors and caching.
+
+Phase 4 — Tracking engine:
+- Persistent tasks and user-defined intervals.
+- Non-stop passage classification.
+- Estimated crossing with uncertainty.
+- Delay and disruption alerts.
+
+Phase 5 — Chart vacancy:
+- Integrate the authorized IRCTC-compatible source where permitted.
+- Render coach/berth details actually supplied by the source.
+- Link back to official information.
+- Never claim booking success or actual onboard vacancy without evidence.
+
+Phase 6 — Chatbot and delivery:
+- Web/app chatbot.
+- Official WhatsApp one-to-one integration if approved.
+- Group integration only if current official eligibility permits.
+- Channel automation only if a supported official API is verified.
+- Provide fallback destinations when a requested WhatsApp target is unsupported.
+
+Phase 7 — Reliability:
+- Functional tests, source outage tests, security tests, load tests and mobile background tests.
+- Duplicate-notification suppression.
+- Observability, backups and deployment pipeline.
+
+Phase 8 — Release:
+- Documented installation and environment setup.
+- Production credential checklist.
+- Cost model.
+- Privacy notice and consent UX.
+- Known limitations and acceptance report.
+
+====================================================================
+11. TESTS AND ACCEPTANCE CRITERIA
+====================================================================
+
+Test:
+- Correct train/station resolution.
+- Real status versus cached/stale status.
+- Scheduled halt versus confirmed non-stop passage versus estimate.
+- Crossings near midnight.
+- Diversions, cancellations and skipped stations.
+- Late or conflicting observations.
+- Interval changes, pause/resume/cancel.
+- WhatsApp consent, webhook verification, opt-out and delivery failure.
+- Group/channel unavailability and fallback.
+- Chart-vacancy source failure and stale results.
+- Data isolation between users.
+- No demo data shown as live.
+- Rate limiting and duplicate alert prevention.
+
+Release only when:
+1. Supported live train queries return real source-backed results.
+2. Source timestamp and freshness are visible.
+3. Persistent monitoring works on the backend.
+4. Non-stop passage is confirmed only when evidence supports it.
+5. Estimates are clearly labelled.
+6. Vacancy details are source-backed and correctly scoped.
+7. WhatsApp delivery is tested on the exact supported destination type.
+8. Unsupported group/channel automation is disclosed and a fallback offered.
+9. Security tests and documentation are complete.
+
+====================================================================
+12. START INSTRUCTIONS TO THE CODING AGENT
+====================================================================
+
+Begin with a concise feasibility report and a source/feature matrix. Do not start by fabricating a live dashboard.
+
+For each feature, mark:
+- VERIFIED AND IMPLEMENTABLE NOW
+- REQUIRES OFFICIAL CREDENTIALS/APPROVAL
+- REQUIRES THIRD-PARTY LICENSE
+- MANUAL-LINK FALLBACK
+- NOT CURRENTLY SUPPORTED
+
+Then produce the architecture and implementation plan. Build a small end-to-end working vertical slice before expanding: train search -> authorized status retrieval -> event normalization -> dashboard -> persistent monitoring -> one notification destination.
+
+Keep a project status file listing completed work, tested integrations, unresolved blockers, costs, and next steps. Never report success without test evidence.
+
+The goal is a secure, accurate, fast, premium Indian Railways intelligence platform—not just an attractive mockup.
