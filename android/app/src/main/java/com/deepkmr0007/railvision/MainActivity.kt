@@ -110,6 +110,7 @@ class MainActivity : Activity() {
         Thread({
             val ok = Engine.ensureStarted(this)
             ui.post {
+                if (isDestroyed) return@post
                 if (ok) {
                     engineReady = true
                     dash.loadUrl(Engine.dashboardUrl)

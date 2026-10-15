@@ -5,6 +5,18 @@
 assist service/API 9 · pacer 1 · browser end-to-end 4). Dashboard v2.1 rendered headless at 1280 px (light) and 390 px (dark)
 across all 10 views: no script errors, no horizontal overflow.
 
+## v2.4 — Android app (15 Oct 2026)
+
+**Tests:** 153 passing (adds 7 phone-driver tests: running status on two layouts, berth chart with class, exception
+list, name search, CAPTCHA blocked vs handed over (PNR), blocked site, notice page links, and a recorded recipe replayed).
+
+| Item | Status | Evidence |
+|---|---|---|
+| APK build | **Built and published by GitHub Actions** (release `android-v2.4.0-b1`, 39 MB, arm64-v8a + x86_64) | workflow run, `apksigner verify`, APK contents checked |
+| Engine on Android | Same Python code, stdlib only + pypdf/certifi; all native modules it needs are in the APK | APK inspection (`_sqlite3`, `_ssl`, `zoneinfo`, …) |
+| Phone browser driver | Passes the mock-site suite in Chromium | `tests/test_phone_driver.py` |
+| **Not verified** | The APK has **not been run on a phone or emulator** here (no Android device or emulator available in the build environment). Kotlin code compiled; runtime behaviour on real devices, OEM battery savers, and the real NTES/IRCTC mobile pages are untested. | — |
+
 ## v2.3 — official railway websites (15 Oct 2026)
 
 **Tests:** 146 passing. Adds 8 official-page tests and a real-browser end-to-end run on a mock zonal portal
