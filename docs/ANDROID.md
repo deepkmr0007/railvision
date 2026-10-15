@@ -68,9 +68,13 @@ public, so anyone can sign an APK that installs over yours. To use your own key,
 secrets `RV_KEYSTORE_B64` (base64 of a PKCS12 file), `RV_KEYSTORE_PASSWORD`, `RV_KEY_ALIAS` and
 `RV_KEY_PASSWORD`. A key change means uninstalling the old app once.
 
-## Not verified yet
+## How it was tested
 
-The phone's page-reading driver (`android/app/src/main/assets/rv_driver.js`) passes the same mock-site
-tests as the desktop assistant (`tests/test_phone_driver.py`). The real NTES / IRCTC pages may be laid
-out differently on a phone; if a check says *Needs teaching*, record it once with the desktop
-`teach` command and the phone uses that recipe after you copy it in through the dashboard.
+* Every build is installed on an **Android 14 emulator** by GitHub Actions. The app starts, its engine comes up, and
+  its own browser assistant reads mock copies of the running-status page and the berth chart. The screenshots and
+  results are attached to each release (`emulator-*.png`, `emulator-results.json`).
+* The page-reading driver (`android/app/src/main/assets/rv_driver.js`) also passes the desktop mock-site suite
+  (`tests/test_phone_driver.py`).
+* **Not tested:** a physical phone, phone-brand battery savers, and the real NTES / IRCTC / PNR pages (their mobile
+  layout may differ). If a check says *Needs teaching*, record it once with the desktop `teach` command and save that
+  recipe to the phone through the dashboard API (`PUT /api/assist/recipes/<name>`).

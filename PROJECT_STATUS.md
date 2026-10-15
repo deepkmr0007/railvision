@@ -12,10 +12,11 @@ list, name search, CAPTCHA blocked vs handed over (PNR), blocked site, notice pa
 
 | Item | Status | Evidence |
 |---|---|---|
-| APK build | **Built and published by GitHub Actions** (release `android-v2.4.0-b1`, 39 MB, arm64-v8a + x86_64) | workflow run, `apksigner verify`, APK contents checked |
+| APK build | **Built and published by GitHub Actions** on every push (39 MB, arm64-v8a + x86_64, signed, `apksigner verify` OK) | workflow `Android APK` |
+| Runs on Android | **Installed and run on an Android 14 emulator in CI**: engine up in 6 s; the in-app assistant read the mock running-status page (confidence 0.85, "Departed from ALWAR (AWR)") and the berth chart (5 vacant, 3A from AWR) in 30 s; an Android notification was posted; no crash in the log | emulator screenshots + `emulator-results.json` attached to each release |
 | Engine on Android | Same Python code, stdlib only + pypdf/certifi; all native modules it needs are in the APK | APK inspection (`_sqlite3`, `_ssl`, `zoneinfo`, …) |
-| Phone browser driver | Passes the mock-site suite in Chromium | `tests/test_phone_driver.py` |
-| **Not verified** | The APK has **not been run on a phone or emulator** here (no Android device or emulator available in the build environment). Kotlin code compiled; runtime behaviour on real devices, OEM battery savers, and the real NTES/IRCTC mobile pages are untested. | — |
+| Phone browser driver | Passes the mock-site suite in Chromium and in the Android WebView | `tests/test_phone_driver.py`, emulator job |
+| **Not verified** | A physical phone; phone-brand battery savers (Xiaomi, Oppo, Vivo…); the real NTES / IRCTC / PNR mobile pages. | — |
 
 ## v2.3 — official railway websites (15 Oct 2026)
 
