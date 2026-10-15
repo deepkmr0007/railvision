@@ -2,13 +2,24 @@
 
 Running status · **non-stop station crossing** · station boards · chart vacancy · persistent tracking with alerts · English/Hindi/Hinglish assistant · WhatsApp / Telegram / email / app delivery · premium command-center dashboard (installable PWA).
 
-> **Honest status:** the whole platform runs and is tested end-to-end on clearly labelled **synthetic demo data**. Real live railway data needs an authorized source (CRIS/NTES arrangement or a licensed provider) — see `docs/FEASIBILITY.md`. Nothing here scrapes NTES/IRCTC or bypasses their protections.
+## New in 2.1: the browser assistant (real official pages)
 
-## Run it (Python 3.11+, zero dependencies)
+Run **`start.bat`** (Windows) or **`./start.sh`** (Mac/Linux). The dashboard opens signed in, and a
+browser window checks your **watch list of up to 10 trains** on the official NTES running-status page,
+one train at a time, every few minutes. It can also check **IRCTC vacant berths** for a train and start
+date you choose, and search trains by name. Results feed the crossing engine, alerts and WhatsApp.
+Full guide: [`docs/BROWSER_ASSISTANT.md`](docs/BROWSER_ASSISTANT.md).
+
+> **Status:** tested end-to-end against a local mock site (117 tests). The real NTES and IRCTC pages
+> could not be reached from the build environment, so on first use teach the assistant the real pages
+> once (one command, ~1 minute). It never solves CAPTCHAs or bypasses bot checks. Automating these pages
+> goes against NTES's robots policy and IRCTC's terms: personal, low-rate use only.
+
+## Demo mode (Python 3.11+, zero dependencies)
 
 ```bash
 python -m railvision.api.server --port 8000      # demo mode, opens on http://127.0.0.1:8000
-python -m unittest discover -s tests              # 90 tests
+python -m unittest discover -s tests              # 117 tests (browser tests need: pip install playwright)
 python tools/export_demo_snapshot.py              # rebuild the offline replay dashboard (dist/)
 ```
 
@@ -30,8 +41,18 @@ railvision/providers   demo, generic licensed HTTP adapter, official-link fallba
 railvision/services    store, tracker (shared polling), messages, resilience, WhatsApp bot
 railvision/delivery    WhatsApp (1:1 / OBA groups / channel queue), Telegram, email, FCM, in-app SSE
 railvision/chatbot     EN/HI/Hinglish NLU, chat engine, optional LLM classifier
+railvision/assist      browser assistant: runner, auto form-filler, TEACH recorder, polite agent loop, CLI
+railvision/parsers     NTES running-status, IRCTC vacant-berth and train-search parsers
 railvision/api         framework-agnostic app, stdlib server, FastAPI wrapper
 web/                   dashboard + PWA manifest + service worker
-docs/                  FEASIBILITY.md · ARCHITECTURE.md · PRIVACY.md · API.md
+docs/                  BROWSER_ASSISTANT.md · FEASIBILITY.md · ARCHITECTURE.md · PRIVACY.md · API.md
+tests/mock_sites       local mock railway pages used by the end-to-end tests
 PROJECT_STATUS.md      completed / tested / blockers / costs / next steps
+```
+
+## Push this repository to GitHub
+
+```bash
+git remote add origin https://github.com/deepkmr0007/railvision-ai.git   # create the empty repo on github.com first
+git push -u origin main
 ```

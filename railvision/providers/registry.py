@@ -80,6 +80,17 @@ SOURCE_MATRIX = [
         "url": "https://core.telegram.org/bots/api",
     },
     {
+        "source": "Browser assistant on your own computer (NTES + IRCTC official pages)", "status": "OFFICIAL PAGES, PERSONAL USE",
+        "fields": "Whatever the official page shows: running status, schedule, delay, platform; vacant berths; train-name search",
+        "coverage": "National (same as the official pages)", "update_frequency": "Your interval (min 5 min per train), one page at a time",
+        "auth": "None for NTES; IRCTC may show bot checks — handed to you, never solved",
+        "terms": "Automating these pages goes against NTES's robots policy and IRCTC's terms. Keep it to personal, low-rate use; do not offer it as a public service or redistribute the data.",
+        "cost_limits": "Free; tool limits: 10 trains, >=15-20 s between page loads, 400 pages/day, 30 min-4 h pause after a block",
+        "approval": VERIFIED_NOW + " for personal use on your computer (page layout to be confirmed on first run)",
+        "tests": "End-to-end against a local mock site (10 trains, berth chart, CAPTCHA, block, teach+replay). Real NTES/IRCTC pages unreachable from the build environment, so real layouts are NOT yet verified.",
+        "integration": "railvision/assist + services/assist_service.py", "url": NTES_URL,
+    },
+    {
         "source": "Demo synthetic fixtures", "status": "INTERNAL / SYNTHETIC", "fields": "All modules (fake)",
         "coverage": "4 synthetic trains", "update_frequency": "Deterministic simulation", "auth": "-",
         "terms": "Never shown as live; refused in live mode", "cost_limits": "-", "approval": VERIFIED_NOW + " (DEMO ONLY)",

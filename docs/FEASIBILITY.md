@@ -33,6 +33,17 @@
 | Android push (FCM v1) | **REQUIRES OFFICIAL CREDENTIALS/APPROVAL** (Firebase project) |
 | Android app | Installable **PWA** now; native Kotlin/Compose is a later phase |
 
+## 2a. Browser assistant (added 15 Oct 2026, at the owner's request)
+
+The owner chose to accept automated personal checks of the official pages. RAILVISION 2.1 adds a
+**browser assistant** that runs on the owner's computer and works the public NTES/IRCTC pages like
+one person: one page at a time, a 15–20 s minimum gap, a 5 min minimum per train, up to 10 trains,
+400 pages a day. CAPTCHAs, logins and blocks are never solved or bypassed; they are handed to the
+user or the site is paused. Status: **VERIFIED AND IMPLEMENTABLE NOW** for personal use. The machinery
+is proven against a local mock site; the real page layouts must be confirmed (TEACH) on first run,
+because the real pages were unreachable from the build environment. It is still automation against
+NTES's robots policy and IRCTC's terms, so it is not suitable as a public or commercial data source.
+
 ## 3. Recommended path to real live data (in order)
 
 1. **Write to CRIS** (Centre for Railway Information Systems) requesting an NTES data-sharing arrangement for RAILVISION (purpose, volume, caching, attribution). This is the only fully official route for running status.

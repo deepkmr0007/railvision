@@ -29,3 +29,18 @@ Auth: `Authorization: Bearer <token>` (SSE: `?token=`). Public endpoints are rat
 | POST | /webhooks/telegram | requires X-Telegram-Bot-Api-Secret-Token |
 
 Errors: 400 bad input · 401 auth/signature · 404 not found or **MANUAL-LINK FALLBACK** (`official_url`) · 413 body too large · 422 task rule · 429 rate limit · 503 source unavailable/not authorized.
+
+## Browser assistant (live mode with `RAILVISION_ASSIST=true`)
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | /api/assist/status | agent online/paused, watch list, site health, recipes |
+| GET/POST | /api/assist/watch | 🔒 list / add (`train`, `start_date`, `interval_min` 5–240, `ref_station`, `end_station`, `berth_checks[≤3]`, `notify`, `destinations`); max 10 active |
+| PATCH/DELETE | /api/assist/watch/{id} | 🔒 owner only |
+| POST | /api/assist/watch/{id}/check-now | 🔒 |
+| GET | /api/assist/work | 🔒 agent: due trains (leased 12 min), queued jobs, recipes, pacing |
+| POST | /api/assist/captures | 🔒 agent: page text/tables/JSON + screenshot (≤6 MB) → parsed, stored, alerts |
+| POST | /api/assist/heartbeat | 🔒 agent state (online / paused / needs_you) |
+| GET | /api/assist/captures[?watch_id=] · /{id} · /{id}/screenshot | 🔒 |
+| GET · PUT | /api/assist/recipes · /api/assist/recipes/{name} | 🔒 TEACH upload (https only) |
+| GET · POST | /api/assist/jobs | 🔒 on-demand `status` / `search` / `berth` check |

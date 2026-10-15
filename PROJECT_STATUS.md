@@ -1,6 +1,27 @@
 # RAILVISION AI — Project status
 
-**Date:** 14 Oct 2026 · **Build:** v2.0.0 · **Test evidence:** `python -m unittest discover -s tests` → **90 tests, all passing** (crossing 26 · WhatsApp/messaging 16 · providers 14 · chatbot 13 · tracker 11 · API + real TCP server/SSE 10). Dashboard rendered headless at 1280 px (dark) and 390 px (light) across all 9 views: no script errors, no horizontal overflow.
+**Date:** 15 Oct 2026 · **Build:** v2.1.0 · **Test evidence:** `python -m unittest discover -s tests` → **117 tests, all passing**
+(crossing 26 · WhatsApp/messaging 16 · providers 14 · chatbot 13 · parsers 13 · tracker 11 · API + real TCP server/SSE 10 ·
+assist service/API 9 · pacer 1 · browser end-to-end 4). Dashboard v2.1 rendered headless at 1280 px (light) and 390 px (dark)
+across all 10 views: no script errors, no horizontal overflow.
+
+## v2.1 — browser assistant (official pages, personal use)
+
+| Area | What works | Evidence |
+|---|---|---|
+| Sequential loop | Up to 10 trains, each with a start date, checked one after another on your interval; berth checks after each train's status | e2e test 1: 10 status pages + 1 berth chart, in order, every read ≥80 % confidence |
+| Getting to the result | Automatic form-filler (menu link, train box, autocomplete, start-date chip / dropdown / date box, submit) worked unchanged on two different mock layouts; TEACH records your own clicks with {train}/{date} slots and replays them for other trains | e2e tests 1, 2, 4 |
+| Human checks | CAPTCHA, login and "access denied" detected; never solved; window handed to you, or the site paused 30 min → 4 h; you get an alert | e2e test 3, pacer test |
+| Reading | NTES parser for tables, labelled text and the page's own JSON; expected times never become actual; menu text never cancels a train; below 60 % confidence no live events are created | 13 parser tests |
+| Vacant berths | IRCTC chart parser (JSON / table / text), "chart not prepared" detection; counts matched the mock exactly | parser tests, e2e test 1 |
+| Name search | Chat "search train rajdhani" / "rajdhani train khojo" → official-site search → alert with the list | e2e test 2 |
+| Server | Watch list (≤10, owner-only), leased work queue, capture + screenshot storage, on-demand jobs, alerts on change, crossing tasks for a watch station | 9 service/API tests |
+| One command | `start.bat` / `./start.sh` / `python -m railvision.launch`: live mode, private token, signed-in dashboard, assistant window | launcher smoke test (server part) |
+
+**Not verified yet:** the real NTES and IRCTC page layouts. Both sites were unreachable from the build
+environment, so the first real run must confirm them (automatic mode or TEACH, about 1 minute each).
+The parser may also need tuning on real captures. Send the files from `assist_data/captures/` if
+read confidence stays below 80 %.
 
 ## Completed and tested
 
@@ -35,6 +56,9 @@
 Meta per-message charges (templates outside 24 h, Groups API) · licensed data provider plan · ~1 small VM · Telegram/PWA free.
 
 ## Next steps
+
+0. On your computer: run `start`, add 2–3 trains, and if a check says *Needs teaching*, run the TEACH command once for
+   `ntes_status` (and `irctc_berth` if you use berth checks). Share one capture file if confidence is low.
 
 1. Pick and contract a data source → fill `config/provider.example.json` → add a recorded-response contract test → switch `RAILVISION_MODE=live`.
 2. Meta setup → get the 8-parameter update template approved → end-to-end test on a real phone (1:1 only).
