@@ -61,6 +61,16 @@ def finish(ok: bool):
     R["ok"] = ok
     (OUT / "results.json").write_text(json.dumps(R, indent=2, default=str))
     print(json.dumps({k: v for k, v in R.items() if k != "steps"}, indent=2, default=str)[:6000])
+    # one-line summaries as workflow annotations (readable through the GitHub API)
+    print(f"::notice title=Engine::started in {R.get('engine_up_s')} s")
+    for c in R.get("captures", []):
+        print(f"::notice title=In-app assistant {c['kind']}::{c['status']} · confidence {c['confidence']} · "
+              f"{(c.get('headline') or c.get('reason') or '')[:150]} · vacant {c.get('vacant')}")
+    for n in R.get("notifications", [])[:6]:
+        print(f"::notice title=Android notification::{n[:180]}")
+    crash = [ln for ln in (OUT / "logcat_app.txt").read_text().splitlines() if "FATAL" in ln or "AndroidRuntime: E" in ln][:3]
+    for ln in crash:
+        print(f"::error title=Crash::{ln[:200]}")
     sys.exit(0 if ok else 1)
 
 

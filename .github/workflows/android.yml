@@ -17,6 +17,8 @@ jobs:
   apk:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    outputs:
+      tag: ${{ steps.rel.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
 
@@ -81,11 +83,13 @@ jobs:
           path: out/*
 
       - name: Publish a GitHub Release
+        id: rel
         env:
           GH_TOKEN: ${{ github.token }}
           V: ${{ steps.out.outputs.version }}
         run: |
           TAG="android-v$V-b$GITHUB_RUN_NUMBER"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           cat > notes.md <<EOF
           **RAILVISION AI $V for Android** (built from \`${GITHUB_SHA::7}\` on \`$GITHUB_REF_NAME\`)
 
@@ -134,3 +138,15 @@ jobs:
         with:
           name: emulator-smoke-test
           path: smoke/
+      - name: Attach the emulator screenshots and results to the release
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.apk.outputs.tag }}
+        run: |
+          cd smoke || exit 0
+          for f in *.png; do [ -f "$f" ] && mv "$f" "emulator-$f"; done
+          [ -f results.json ] && mv results.json emulator-results.json
+          [ -f logcat_app.txt ] && mv logcat_app.txt emulator-log.txt
+          ls -la
+          gh release upload "$TAG" emulator-* --clobber --repo "$GITHUB_REPOSITORY"
