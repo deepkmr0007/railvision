@@ -166,6 +166,30 @@ class AssistEndToEnd(unittest.TestCase):
         failed = [x for x in self.client.call("GET", "/api/assist/jobs")["items"] if x["kind"] == "pnr"][0]
         self.assertEqual(failed["status"], "failed")
 
+    def test_6_official_zonal_pages_read_by_your_browser(self):
+        self.client.call("POST", "/api/journeys", {"train": "12951", "start_date": self.today, "board": "NDLS", "dest": "JP"})
+        src = self.client.call("POST", "/api/news/sources", {"kind": "web", "url": self.mbase + "/zone/view_section.jsp?lang=0&id=0,4,268",
+                                                             "name": "Zonal press releases (mock)", "fetch_via": "assistant",
+                                                             "link_filter": r"view_detail\.jsp|\.pdf(\?|$)|/uploads/"})
+        logs = []
+        ag = self.agent(logs)
+        ag.round()                                              # first visit: baseline (1 old item)
+        self.mock.zone_state["items"] = 3
+        self.app.news.store.x("UPDATE news_sources SET next_due_at=NULL WHERE id=?", (src["id"],))
+        ag.round()                                              # list again: 2 new -> detail jobs queued
+        ag.round()                                              # detail page + PDF, read in the browser
+        uid = self.app.store.user_for_token(self.tok)
+        items = {i["title"][:12]: i for i in self.app.news.items(uid) if i["source_id"] == src["id"]}
+        self.assertEqual(set(items), {"Cancellation", "Extension of"}, "menus and footer links are never items")
+        pdf_it = items["Cancellation"]
+        self.assertEqual(pdf_it["detail_status"], "ok", pdf_it.get("detail_note"))
+        self.assertIn("12951 will remain cancelled", pdf_it["text"])
+        self.assertEqual(pdf_it["score"], 1.0)
+        self.assertIn("04815/04816", items["Extension of"]["text"])
+        self.assertTrue(any("read PDF" in ln for ln in logs) or any("notice102.pdf" in ln for ln in logs), logs)
+        notes = self.client.call("GET", "/api/notifications")["items"]
+        self.assertTrue(any(n["type"] == "ANNOUNCEMENT" and "12951" in n["body"] + n["title"] for n in notes))
+
     def test_4_teach_then_replay_for_other_trains(self):
         page = self.browser.new_page()
         today = datetime.now(IST).date()

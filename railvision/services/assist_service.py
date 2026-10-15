@@ -318,6 +318,27 @@ class AssistService:
                            (user_id, kind, recipe, self._j(vars_), "queued", iso(self.clock()))).lastrowid
         return self.store.q("SELECT * FROM assist_jobs WHERE id=?", (jid,))[0]
 
+    def _agent_user(self) -> str | None:
+        """Whose browser assistant reads shared official pages: the most recently seen agent (or the first user)."""
+        r = self.store.q("SELECT user_id FROM assist_agents ORDER BY last_seen DESC LIMIT 1")
+        if r:
+            return r[0]["user_id"]
+        r = self.store.q("SELECT id FROM users ORDER BY created_at LIMIT 1")
+        return r[0]["id"] if r else None
+
+    def queue_page_job(self, vars_: dict) -> dict | None:
+        """An announcement detail page / PDF for the browser assistant to read."""
+        uid = self._agent_user()
+        if not uid or not str(vars_.get("url", "")).startswith(("https://", "http://")):
+            return None
+        dup = self.store.q("SELECT id FROM assist_jobs WHERE kind='page' AND vars=? AND status IN ('queued','running','done')",
+                           (self._j(vars_),))
+        if dup:
+            return None
+        jid = self.store.x("INSERT INTO assist_jobs(user_id,kind,recipe,vars,status,created_at) VALUES (?,?,?,?,?,?)",
+                           (uid, "page", "web_page", self._j(vars_), "queued", iso(self.clock()))).lastrowid
+        return {"id": jid}
+
     def list_jobs(self, user_id: str, limit=20) -> list[dict]:
         return self.store.q("SELECT * FROM assist_jobs WHERE user_id=? ORDER BY id DESC LIMIT ?", (user_id, limit))
 
@@ -381,6 +402,9 @@ class AssistService:
                     continue
                 self.store.x("INSERT OR REPLACE INTO assist_lists_state VALUES (?,?,?)", (user_id, lk, iso(now)))
                 jobs.append({"job_id": None, "recipe": f"ntes_{lk}", "kind": "list", "vars": {"list": lk}})
+        if self.news and len(jobs) < 8 and user_id == self._agent_user():
+            for src in self.news.due_assistant_pages(limit=3):
+                jobs.append({"job_id": None, "recipe": "web_page", "kind": "page", "vars": {"url": src["url"], "source_id": src["id"]}})
         return {"watch": items, "jobs": jobs, "recipes": self.recipes(),
                 "pacing": dict(self.pacing),
                 "server_time": iso(now)}
@@ -388,8 +412,10 @@ class AssistService:
     # ------------------------------------------------------------------ ingest
     def ingest(self, user_id: str, c: dict) -> dict:
         kind = c.get("kind")
+        if kind == "page":
+            return self._ingest_page(user_id, c)
         if kind not in ("status", "berth", "search", "list", "pnr"):
-            raise ValueError("kind must be status, berth, search, list or pnr")
+            raise ValueError("kind must be status, berth, search, list, pnr or page")
         wid, jid = c.get("watch_id"), c.get("job_id")
         w = self.get_watch(user_id, wid) if wid else None
         if wid and not w:
@@ -478,6 +504,24 @@ class AssistService:
                          ("done" if status == "ok" else "failed", cid, headline[:300], job["id"]))
             self._job_notification(user_id, job, kind, status, cid, parse, headline, c.get("reason") or "")
         return result
+
+    def _ingest_page(self, user_id: str, c: dict) -> dict:
+        if not self.news:
+            raise ValueError("announcements are not enabled")
+        v = {k: str(x) for k, x in (c.get("vars") or {}).items()}
+        jid = c.get("job_id")
+        if jid is not None:
+            r = self.store.q("SELECT * FROM assist_jobs WHERE id=? AND user_id=?", (int(jid), user_id))
+            if not r:
+                raise PermissionError("job not found")
+            self.store.x("UPDATE assist_jobs SET status=?, summary=? WHERE id=?",
+                         ("done" if c.get("status") == "ok" else "failed", (c.get("reason") or c.get("status") or "")[:200], int(jid)))
+        if v.get("item_id"):
+            it = self.news.ingest_detail(int(v["item_id"]), c)
+            return {"status": c.get("status"), "headline": f"announcement detail read ({'PDF' if c.get('pdf_b64') else 'page'})",
+                    "item": (it or {}).get("id"), "confidence": None}
+        new = self.news.ingest_page(v.get("source_id", ""), c)
+        return {"status": c.get("status"), "headline": f"{len(new)} new announcements", "confidence": None}
 
     def _prune(self, wid):
         if wid:

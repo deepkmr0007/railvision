@@ -110,6 +110,7 @@ class App:
         self.digest = DigestService(self.store, self.dispatcher, self.news, self.journeys, self.assist, clock)
         if self.assist:
             self.assist.news = self.news
+            self.news.assist = self.assist
         self.news_enabled = os.environ.get("RAILVISION_NEWS", "true" if self.mode == "live" else "false").lower() == "true"
         self.chat = ChatEngine(self.tracker, self.registry, self.store, LLMIntentParser(), assist=self.assist)
         self.chat.news, self.chat.journeys = self.news, self.journeys
