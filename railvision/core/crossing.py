@@ -174,6 +174,11 @@ def evaluate_crossing(route: Route, observations: list[LiveObservation], station
                       source_time=c.source_time, evidence=[f"CANCELLED record from {c.source_id}"])
 
     codes, warns = effective_codes(route, obs)
+    if station_code not in codes and not route.complete and route.index_of(station_code) is None:
+        return result(EventClass.NOT_VERIFIED, Verification.ESTIMATED, None,
+                      f"Crossing not verified — {station_code} is not listed on the source page (it lists only "
+                      "halting stations). The train is confirmed past it only once it is reported at a later halt.",
+                      confidence=0.0, method="station absent from partial route", warnings=warns)
     if station_code not in codes:
         why = "not on this train's route" if route.index_of(station_code) is None else \
               "dropped from the route (diversion / short termination)"

@@ -28,7 +28,7 @@ def make_handler(app: App):
         def _req(self) -> Request:
             u = urlsplit(self.path)
             n = int(self.headers.get("Content-Length") or 0)
-            body = self.rfile.read(min(n, 300_000)) if n else b""
+            body = self.rfile.read(min(n, 7_000_000)) if n else b""
             return Request(self.command, u.path, parse_query(u.query),
                            {k.lower(): v for k, v in self.headers.items()}, body, self.client_address[0])
 
@@ -72,7 +72,7 @@ def make_handler(app: App):
                 return self._sse(req)
             self._send(*app.handle(req))
 
-        do_GET = do_POST = do_PATCH = do_DELETE = do_OPTIONS = _any
+        do_GET = do_POST = do_PUT = do_PATCH = do_DELETE = do_OPTIONS = _any
 
     return H
 

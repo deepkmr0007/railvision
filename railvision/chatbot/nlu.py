@@ -26,6 +26,7 @@ INTENT_PATTERNS: list[tuple[str, str]] = [
     ("change_interval", r"(change|set|update|badlo|बदलो).{0,20}(interval|frequency|har)|interval\s*(to)?\s*\d"),
     ("delay_alert", r"(alert|notify|bata(na|o)|बताना|बताओ).{0,40}(delay|late|लेट|देरी)|(delay|late|लेट).{0,30}(exceed|more than|over|zyada|jyada|ज़्यादा|ज्यादा|>)"),
     ("vacancy", r"vacan|vacant|khali berth|seat khali|खाली|\bberths?\b|\bchart\b"),
+    ("search", r"^(search|find|look ?up|khojo|dhundo|खोजो|ढूंढो)\b(?!.*\d{5})|(search|find|khojo|dhundo)\s+(for\s+)?trains?\s+(named|called|name)|train(s)? (named|called)|naam se|\b(khojo|dhundo|खोजो|ढूंढो)[.!? ]*$"),
     ("between", r"trains? (from|between)|between .+ and |gaadiyan|गाड़ियाँ"),
     ("board", r"\b(board|arrivals?|departures?)\b|station (status|board)"),
     ("track", r"\btrack\b|monitor|watch|nazar|नज़र|नजर|ट्रैक|updates? (bhejo|do|send)|keep me (posted|updated)|every \d+|har \d+"),
@@ -47,6 +48,7 @@ class Parsed:
     date_ambiguous: bool = False
     travel_class: str | None = None
     link_code: str | None = None
+    query: str | None = None
     lang: str = "en"
     raw: str = ""
 
@@ -78,7 +80,16 @@ def parse(text: str, today: date) -> Parsed:
     m_train = re.search(r"(?<!\d)(\d{5})(?!\d)", t)
     if intent == "change_interval" and m_train and re.search(r"\btrack|monitor|ट्रैक", low):
         intent = "track"
+    if intent == "unknown" and m_train:
+        intent = "where"          # a bare train number (or "search 12951") means "show its status"
     p = Parsed(intent=intent, train=m_train.group(1) if m_train else None, raw=raw, lang=detect_lang(raw))
+    if intent == "search":
+        q = re.sub(r"^(please\s+)?(search|find|look ?up|khojo|dhundo|खोजो|ढूंढो)\s+(for\s+)?(the\s+)?(trains?\s+)?(named|called|name)?\s*", "", low).strip(" ?.")
+        words = q.split()
+        while words and words[-1].strip("?.!") in {"khojo", "dhundo", "खोजो", "ढूंढो", "ko", "train", "trains", "gaadi", "naam", "se", "please"}:
+            words.pop()
+        q = " ".join(words).strip()
+        p.query = q or None
     if intent == "link":
         p.link_code = re.search(r"\d{6}", t).group(0)
 

@@ -85,6 +85,7 @@ class Route:
     source_id: str
     is_demo: bool = False
     runs_on: str = ""
+    complete: bool = True     # False when the source lists only halting stations (non-stop points unknown)
 
     def index_of(self, code: str) -> int | None:
         for i, s in enumerate(self.stops):

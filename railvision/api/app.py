@@ -25,6 +25,7 @@ from ..delivery.whatsapp import (ChannelCopyQueue, WhatsAppCloudClient, WhatsApp
                                  WhatsAppPersonal, parse_inbound, verify_challenge, verify_signature)
 from ..providers.base import NotAuthorized, NotSupported, ProviderError
 from ..providers.registry import SOURCE_MATRIX, ProviderRegistry
+from ..services.assist_service import AssistService
 from ..services.resilience import KeyedRateLimiter
 from ..services.store import Store
 from ..services.tracker import TaskError, TrackingEngine
@@ -73,7 +74,7 @@ def _json(status: int, obj) -> tuple[int, dict, bytes]:
 
 class App:
     def __init__(self, store: Store | None = None, registry: ProviderRegistry | None = None, clock=now_ist,
-                 wa_transport=None, tg_transport=None, logger=print):
+                 wa_transport=None, tg_transport=None, logger=print, assist: bool | None = None):
         self.mode = os.environ.get("RAILVISION_MODE", "demo")
         self.clock, self.log = clock, logger
         self.store = store or Store(os.environ.get("RAILVISION_DB", "railvision.db"),
@@ -91,7 +92,15 @@ class App:
             WhatsAppGroup(self.wa_cfg), ChannelCopyQueue(self.store), self.telegram, Email(), AndroidPush()])
         self.app_url = os.environ.get("RAILVISION_APP_URL", "")
         self.tracker = TrackingEngine(self.store, self.registry, self.dispatcher, self.mode, self.app_url, clock)
-        self.chat = ChatEngine(self.tracker, self.registry, self.store, LLMIntentParser())
+        if assist is None:
+            assist = os.environ.get("RAILVISION_ASSIST", "false").lower() == "true"
+        self.assist = None
+        if assist:
+            if self.mode != "live":
+                raise ValueError("The browser assistant reads real official pages: run it with RAILVISION_MODE=live")
+            self.assist = AssistService(self.store, self.tracker, self.dispatcher, clock, self.app_url, logger)
+            self.registry.providers.insert(0, self.assist.provider)    # first choice; licensed providers after it
+        self.chat = ChatEngine(self.tracker, self.registry, self.store, LLMIntentParser(), assist=self.assist)
         self.wa_bot = WhatsAppBot(self.store, self.chat, self.wa_client, logger=logger)
         self.ip_limit = KeyedRateLimiter(int(os.environ.get("RAILVISION_RATE_PER_MIN", "120")))
         self.chat_limit = KeyedRateLimiter(30)
@@ -131,6 +140,23 @@ class App:
         r("POST", r"/api/channel-queue/(?P<pid>\d+)/published", self.channel_published, True)
         r("GET", r"/api/reports/summary", self.report, True)
         r("POST", r"/api/admin/tick", self.admin_tick, True)
+        # browser assistant
+        r("GET", r"/api/assist/status", self.as_status, True)
+        r("GET", r"/api/assist/watch", self.as_watch_list, True)
+        r("POST", r"/api/assist/watch", self.as_watch_add, True)
+        r("PATCH", r"/api/assist/watch/(?P<wid>w_[0-9a-f]+)", self.as_watch_patch, True)
+        r("DELETE", r"/api/assist/watch/(?P<wid>w_[0-9a-f]+)", self.as_watch_delete, True)
+        r("POST", r"/api/assist/watch/(?P<wid>w_[0-9a-f]+)/check-now", self.as_watch_now, True)
+        r("GET", r"/api/assist/work", self.as_work, True)
+        r("POST", r"/api/assist/heartbeat", self.as_heartbeat, True)
+        r("POST", r"/api/assist/captures", self.as_ingest, True)
+        r("GET", r"/api/assist/captures", self.as_captures, True)
+        r("GET", r"/api/assist/captures/(?P<cid>\d+)", self.as_capture, True)
+        r("GET", r"/api/assist/captures/(?P<cid>\d+)/screenshot", self.as_shot, True)
+        r("GET", r"/api/assist/recipes", self.as_recipes, True)
+        r("PUT", r"/api/assist/recipes/(?P<name>[a-z0-9_]{3,40})", self.as_recipe_put, True)
+        r("GET", r"/api/assist/jobs", self.as_jobs, True)
+        r("POST", r"/api/assist/jobs", self.as_job_add, True)
         r("GET", r"/webhooks/whatsapp", self.wa_verify)
         r("POST", r"/webhooks/whatsapp", self.wa_inbound)
         r("POST", r"/webhooks/telegram", self.tg_inbound)
@@ -149,7 +175,7 @@ class App:
         if origin and (origin in self.cors or "*" in self.cors):
             return {"Access-Control-Allow-Origin": origin, "Vary": "Origin",
                     "Access-Control-Allow-Headers": "authorization, content-type",
-                    "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS"}
+                    "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS"}
         return {}
 
     def handle(self, req: Request) -> tuple[int, dict, bytes]:
@@ -174,7 +200,8 @@ class App:
     def _dispatch(self, req: Request):
         if req.method == "OPTIONS":
             return 204, {}, b""
-        if len(req.body) > MAX_BODY:
+        limit = 6 * 1024 * 1024 if req.path == "/api/assist/captures" else MAX_BODY
+        if len(req.body) > limit:
             raise HttpError(413, "body too large")
         is_hook = req.path.startswith("/webhooks/")
         if not (self.hook_limit if is_hook else self.ip_limit).allow(req.client_ip):
@@ -386,6 +413,90 @@ class App:
                                      ("ACTIVE", "PAUSED", "COMPLETED", "CANCELLED", "PENDING_CONFIRMATION")},
                            "notifications_by_type": by_type, "engine_metrics": dict(self.tracker.metrics),
                            "store": self.store.stats()})
+
+    # ------------------------------------------------------------------ browser assistant
+    def _as(self):
+        if not self.assist:
+            raise HttpError(404, "browser assistant is off (start with RAILVISION_MODE=live RAILVISION_ASSIST=true)")
+        return self.assist
+
+    def _ve(self, fn, *a):
+        try:
+            return fn(*a)
+        except ValueError as e:
+            raise HttpError(422, str(e))
+        except PermissionError as e:
+            raise HttpError(404, str(e))
+
+    def as_status(self, req, uid):
+        a = self._as()
+        return _json(200, {"agent": a.agent_state(uid), "watch": a.list_watch(uid), "health": a.source_health(),
+                           "recipes": {k: {"mode": v["mode"], "verified": v["verified"], "steps": len(v["steps"]), "notes": v["notes"]}
+                                       for k, v in a.recipes().items()}})
+
+    def as_watch_list(self, req, uid):
+        return _json(200, {"watch": self._as().list_watch(uid), "max": 10})
+
+    def as_watch_add(self, req, uid):
+        return _json(201, self._ve(self._as().add_watch, uid, req.json()))
+
+    def as_watch_patch(self, req, uid, wid):
+        w = self._ve(self._as().update_watch, uid, wid, req.json())
+        if not w:
+            raise HttpError(404, "not found")
+        return _json(200, w)
+
+    def as_watch_delete(self, req, uid, wid):
+        if not self._as().delete_watch(uid, wid):
+            raise HttpError(404, "not found")
+        return _json(200, {"deleted": wid})
+
+    def as_watch_now(self, req, uid, wid):
+        w = self._as().check_now(uid, wid)
+        if not w:
+            raise HttpError(404, "not found")
+        return _json(200, w)
+
+    def as_work(self, req, uid):
+        info = {"agent": req.headers.get("x-rv-agent", "")[:80]}
+        return _json(200, self._as().work(uid, info))
+
+    def as_heartbeat(self, req, uid):
+        b = req.json()
+        self._as().heartbeat(uid, b.get("info"), b.get("state"), str(b.get("reason", ""))[:300])
+        return _json(200, {"ok": True})
+
+    def as_ingest(self, req, uid):
+        return _json(201, self._ve(self._as().ingest, uid, req.json()))
+
+    def as_captures(self, req, uid):
+        return _json(200, {"items": self._as().captures(uid, req.q1("watch_id"), int(req.q1("limit", "20") or 20))})
+
+    def as_capture(self, req, uid, cid):
+        c = self._as().capture(uid, int(cid))
+        if not c:
+            raise HttpError(404, "not found")
+        return _json(200, c)
+
+    def as_shot(self, req, uid, cid):
+        b = self._as().screenshot(uid, int(cid))
+        if not b:
+            raise HttpError(404, "no screenshot")
+        return 200, {"Content-Type": "image/jpeg", "Cache-Control": "private, max-age=3600"}, b
+
+    def as_recipes(self, req, uid):
+        return _json(200, self._as().recipes())
+
+    def as_recipe_put(self, req, uid, name):
+        return _json(200, self._ve(self._as().save_recipe, name, req.json()))
+
+    def as_jobs(self, req, uid):
+        return _json(200, {"items": self._as().list_jobs(uid)})
+
+    def as_job_add(self, req, uid):
+        b = req.json()
+        v = {k: str(x) for k, x in (b.get("vars") or {}).items() if k in ("train", "date", "station", "class", "query")}
+        return _json(201, self._ve(self._as().queue_job, uid, str(b.get("kind")), v))
 
     def admin_tick(self, req, uid):
         if self.mode != "demo":

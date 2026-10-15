@@ -22,8 +22,9 @@ def _L(lang: str, en: str, hi: str) -> str:
 
 
 class ChatEngine:
-    def __init__(self, tracker, registry, store, llm=None):
+    def __init__(self, tracker, registry, store, llm=None, assist=None):
         self.tracker, self.registry, self.store, self.llm = tracker, registry, store, llm
+        self.assist = assist          # AssistService: lets the bot ask the browser assistant to open official pages
 
     # ------------------------------------------------------------------ helpers
     def _today(self) -> date:
@@ -123,6 +124,9 @@ class ChatEngine:
                           "समझ नहीं आया। जैसे लिखें: '12951 kahan hai', 'Rewari cross hui?', "
                           "'12951 Rewari se Delhi tak har 15 min track karo'. HELP लिखें।"), "unknown")
 
+        if p.intent == "search":
+            return self._search(p, user_id, rep, lang)
+
         # task-control intents can work without a train number
         if p.intent in ("pause", "resume", "cancel", "change_interval", "delay_alert"):
             return self._task_control(p, ctx, user_id, rep, lang)
@@ -167,7 +171,19 @@ class ChatEngine:
             return rep(_L(lang, f"That data isn't available from an authorized source right now: {e}{link}",
                           f"यह जानकारी अभी किसी अधिकृत स्रोत से उपलब्ध नहीं: {e}{link}"), p.intent,
                        data={"official_url": getattr(e, "official_url", None)})
-        except (ProviderError, NotAuthorized) as e:
+        except ProviderError as e:
+            if self.assist and user_id and getattr(e, "train", None):
+                job = self.assist.queue_job(user_id, "status", {"train": e.train, "date": e.sd.isoformat()})
+                return rep(_L(lang, f"🔎 I've asked your browser assistant to open the official NTES page for {e.train} "
+                                    f"(start date {e.sd:%d %b}). The result arrives as an alert — and on WhatsApp if linked — "
+                                    "within a minute or two while your computer is on. For a train that started yesterday, "
+                                    "add 'yesterday' to your question.",
+                              f"🔎 आपके ब्राउज़र असिस्टेंट को {e.train} (शुरू होने की तारीख {e.sd:%d %b}) के लिए NTES का आधिकारिक "
+                                    "पेज खोलने को कहा है। नतीजा एक-दो मिनट में अलर्ट (और WhatsApp, अगर जुड़ा है) पर आएगा।"),
+                           p.intent, data={"job": job})
+            return rep(_L(lang, f"Data temporarily unavailable ({e}). I won't guess — please retry shortly.",
+                          f"डेटा अभी उपलब्ध नहीं ({e})। अंदाज़ा नहीं लगाऊँगा — थोड़ी देर में फिर पूछें।"), p.intent)
+        except NotAuthorized as e:
             return rep(_L(lang, f"Data temporarily unavailable ({e}). I won't guess — please retry shortly.",
                           f"डेटा अभी उपलब्ध नहीं ({e})। अंदाज़ा नहीं लगाऊँगा — थोड़ी देर में फिर पूछें।"), p.intent)
         except TaskError as e:
@@ -305,6 +321,27 @@ class ChatEngine:
                  f"{' PF ' + r['platform'] if r.get('platform') else ''}{'' if r['halt'] else ' (non-stop)'}" for r in rows]
         return rep(f"Scheduled at {flat[0]} (source {prov.source_id}):\n" + "\n".join(lines), p.intent,
                    data={"board": rows}, is_demo=prov.is_demo)
+
+    def _search(self, p, user_id, rep, lang):
+        q = (p.query or "").strip()
+        if len(q) < 3:
+            return rep(_L(lang, "Which train name should I search for? e.g. 'search train Rajdhani'",
+                          "किस नाम की ट्रेन खोजूँ? जैसे 'Rajdhani train khojo'"), "search")
+        try:
+            prov, rows = self.registry.call("search_trains", q)
+            if rows:
+                return rep(f"Trains matching '{q}' (source {prov.source_id}):\n" +
+                           "\n".join(f"{r['number']} {r['name']}" for r in rows[:15]), "search",
+                           data={"results": rows}, is_demo=prov.is_demo)
+        except (NotSupported, ProviderError):
+            pass
+        if self.assist and user_id:
+            job = self.assist.queue_job(user_id, "search", {"query": q})
+            return rep(_L(lang, f"🔎 Searching the official site for '{q}' with your browser assistant. "
+                                "The list arrives as an alert shortly.",
+                          f"🔎 '{q}' नाम की ट्रेनें आधिकारिक साइट पर खोजी जा रही हैं — सूची जल्द अलर्ट में आएगी।"),
+                       "search", data={"job": job})
+        return rep(f"No train-name search source is connected. Open NTES: https://enquiry.indianrail.gov.in/mntes/", "search")
 
     # ------------------------------------------------------------------ task control
     def _target_task(self, p, ctx, user_id):
