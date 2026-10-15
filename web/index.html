@@ -166,7 +166,8 @@ ul.ev{margin:0;padding-left:18px;font-size:.88rem}
 
 /* feed + chat */
 .feed{display:grid;gap:10px}
-.note{border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:var(--surface);display:grid;gap:6px}
+.note{border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:var(--surface);display:grid;gap:6px;min-width:0}
+.chip{max-width:100%;overflow:hidden;text-overflow:ellipsis}
 .note .row{gap:8px}
 .bubble{white-space:pre-wrap;font-size:.84rem;background:var(--sunk);border-radius:10px 10px 10px 2px;padding:10px 12px;max-width:62ch;overflow-wrap:anywhere}
 .chat{display:grid;gap:10px;max-height:62vh;overflow-y:auto;padding:4px}
@@ -222,8 +223,8 @@ const hm=iso=>iso?String(iso).slice(11,16):"—";
 const store={get(k,d){try{const v=localStorage.getItem("rv_"+k);return v===null?d:JSON.parse(v)}catch(e){return d}},
              set(k,v){try{localStorage.setItem("rv_"+k,JSON.stringify(v))}catch(e){}}};
 
-const VIEWS=[["overview","Overview"],["watch","Watch list"],["train","Live train"],["crossing","Crossing monitor"],["station","Station board"],
-  ["vacancy","Chart vacancy"],["alerts","Tracking & alerts"],["assistant","Assistant"],["sources","Data sources"],["settings","Settings"]];
+const VIEWS=[["overview","Overview"],["trips","My Journeys"],["news","Announcements"],["watch","Watch list"],["train","Live train"],["crossing","Crossing monitor"],["station","Station board"],
+  ["vacancy","Chart vacancy"],["alerts","Tracking & alerts"],["assistant","Assistant"],["sources","Data sources"],["settings","Settings"],["help","Help"]];
 const S={view:"overview",train:store.get("train","90001"),station:store.get("cstation","RE"),board:"AWR",
   vac:{from:"JP",cls:"3A",sel:null},frame:0,token:store.get("token",null),mode:"offline",serverMode:null,
   chat:[],cache:{},playing:null,dates:store.get("dates",{}),assistOn:false,capSel:null,shots:{},lowbw:store.get("lowbw",false),theme:store.get("theme","system"),saved:store.get("saved",[])};
@@ -257,6 +258,17 @@ const API={
     const r=await this.get("/api/notifications",true);return r.items.map(n=>({...n,at:n.created_at}))},
   async tasks(){if(S.mode==="snapshot")return this.frame().tasks;return (await this.get("/api/tasks",true)).tasks},
   between(){return S.mode==="snapshot"?RV_SNAPSHOT.between:null},
+  /* personal features */
+  P(){return (RV_SNAPSHOT&&RV_SNAPSHOT.personal)||null},
+  async journeys(){if(S.mode==="snapshot")return this.P()?.journeys||[];return (await this.get("/api/journeys",true)).journeys},
+  async news(rel,cat,q){if(S.mode==="snapshot"){let it=this.P()?.news||[];if(rel)it=it.filter(x=>x.score>=0.4);if(cat)it=it.filter(x=>x.categories.includes(cat));if(q)it=it.filter(x=>(x.title+" "+x.text).toLowerCase().includes(q.toLowerCase()));return it}
+    return (await this.get(`/api/news?relevant=${rel?1:0}`+(cat?`&category=${cat}`:"")+(q?`&q=${encodeURIComponent(q)}`:""),true)).items},
+  async newsSources(){if(S.mode==="snapshot")return this.P()?.sources||{sources:[],suggested:[],x:{}};return this.get("/api/news/sources",true)},
+  async help(){if(S.mode==="snapshot")return this.P()?.help;return this.get("/api/help")},
+  async prefs(){if(S.mode==="snapshot")return this.P()?.prefs||{};return this.get("/api/prefs",true)},
+  async digest(){if(S.mode==="snapshot")return {text:this.P()?.digest||""};return this.get("/api/digest/preview",true)},
+  async punct(t,st){if(S.mode==="snapshot")return (this.P()?.punct||{})[t+"|"+st]||null;try{return await this.get(`/api/stats/punctuality?train=${t}&station=${st}`,true)}catch(e){return null}},
+  async reminders(){if(S.mode==="snapshot")return this.P()?.reminders||[];return (await this.notifications()).filter(n=>n.type==="JOURNEY_REMINDER")},
   /* browser assistant */
   async assist(){if(S.mode==="snapshot")return RV_SNAPSHOT.assist||null;if(S.mode!=="server")return null;
     try{const r=await this.get("/api/assist/status",true);S.assistOn=true;r.watch.forEach(w=>{S.dates[w.train]=w.start_date});store.set("dates",S.dates);return r}catch(e){S.assistOn=false;return null}},
@@ -500,6 +512,15 @@ async function vSources(){
    <div class="two"><div class="panel"><h3>Delivery channels on this server</h3>${(s.destinations||[]).map(d=>`<div class="row" style="justify-content:space-between;border-top:1px solid var(--line);padding:6px 0"><span>${esc(DEST_LABEL[d.name]||d.name)}</span><span class="chip ${d.available?"c-ok":"c-nv"}" title="${esc(d.reason)}">${d.available?"ready":"not set up"}</span></div>`).join("")}</div>
    <div class="panel"><h3>Source health</h3>${(s.health||[]).map(h=>`<div class="row" style="justify-content:space-between;border-top:1px solid var(--line);padding:6px 0"><span class="mono">${esc(h.source_id)}</span><span class="chip ${h.status==="OK"?"c-ok":h.status==="MANUAL"?"c-acc":h.status==="DOWN"?"c-bad":"c-amber"}">${esc(h.status)}</span></div>`).join("")}</div></div></section>`}
 
+async function prefsPanel(){const p=await API.prefs().catch(()=>({}));const dg=await API.digest().catch(()=>({text:""}));const live=S.mode==="server";
+  return `<form id="prefForm" class="panel" style="display:grid;gap:10px;grid-column:1/-1"><h3 style="margin:0">Daily digest & announcement alerts</h3>
+   <div class="row"><label class="row" style="gap:6px"><input type="checkbox" id="pDig" ${p.digest_enabled!==false?"checked":""} ${live?"":"disabled"}> Send a daily digest at</label><input id="pTime" type="time" value="${esc(p.digest_time||"07:00")}" ${live?"":"disabled"}>
+    <label class="field">Alert me for<select id="pMin" ${live?"":"disabled"}><option value="1" ${p.announce_min_score>=1?"selected":""}>Only my trains</option><option value="0.8" ${p.announce_min_score==0.8||p.announce_min_score==null?"selected":""}>My trains + disruptions at my stations</option><option value="0.6" ${p.announce_min_score==0.6?"selected":""}>Anything at my stations</option><option value="0.4" ${p.announce_min_score==0.4?"selected":""}>Also disruptions in my zones</option></select></label></div>
+   <div class="row"><label class="field" style="flex:1;min-width:200px">Zones (comma separated)<input id="pZones" value="${esc((p.zones||[]).join(", "))}" placeholder="North Western, Northern" ${live?"":"disabled"}></label>
+    <label class="field" style="flex:1;min-width:200px">Keywords<input id="pKw" value="${esc((p.keywords||[]).join(", "))}" placeholder="fog, Vande Bharat" ${live?"":"disabled"}></label></div>
+   <fieldset style="border:0;padding:0;margin:0;display:flex;flex-wrap:wrap;gap:12px"><legend class="eyebrow" style="margin-bottom:4px">Digest & urgent alerts go to</legend>${["app","whatsapp","telegram","email","browser"].map(d=>`<label class="row" style="gap:6px;font-size:.86rem"><input type="checkbox" name="pdest" value="${d}" ${(p.digest_destinations||["app"]).includes(d)?"checked":""} ${d==="app"||!live?"disabled":""}> ${DEST_LABEL[d]}</label>`).join("")}</fieldset>
+   ${live?`<div class="row"><button class="btn" type="submit">Save</button><button class="btn ghost" type="button" id="dgSend">Send digest now</button><span id="pMsg" class="muted" style="font-size:.86rem"></span></div>`:""}
+   <details ${S.mode==="snapshot"?"open":""}><summary class="muted" style="cursor:pointer;font-size:.86rem">Preview today's digest</summary><div class="bubble" style="margin-top:8px">${esc(dg.text||"")}</div></details></form>`}
 function vSettings(){
   const live=S.mode==="server";
   return `<section class="view"><div><div class="eyebrow">Settings</div><h2>Preferences</h2></div>
@@ -510,9 +531,103 @@ function vSettings(){
     <div class="panel"><h3>Low-bandwidth mode</h3><p class="muted" style="font-size:.86rem;margin-top:0">Hides the map and slows refresh to every 2 minutes.</p><label class="row" style="gap:8px"><input type="checkbox" id="lowbw" ${S.lowbw?"checked":""}> Use low-bandwidth mode</label></div>
     <div class="panel"><h3>Browser notifications</h3><p class="muted" style="font-size:.86rem;margin-top:0">Show alerts as system notifications while this page is open.</p><button class="btn ghost" type="button" id="notifBtn" ${live?"":"disabled"}>Allow notifications</button> <span id="notifMsg" class="muted" style="font-size:.84rem"></span></div>
     <div class="panel"><h3>Link WhatsApp</h3><p class="muted" style="font-size:.86rem;margin-top:0">Get a one-time code, then send <span class="mono">LINK &lt;code&gt;</span> to the RAILVISION WhatsApp number. Reply STOP there to unsubscribe.</p><button class="btn ghost" type="button" id="linkBtn" ${live?"":"disabled"}>Get link code</button> <b class="mono" id="linkCode"></b></div>
+    ${S.prefsHtml||""}
     <div class="panel"><h3>About this data</h3><p class="muted" style="font-size:.86rem;margin:0">Mode: <b>${esc(S.mode==="snapshot"?"offline demo replay":S.mode==="server"?("server · "+S.serverMode):"no server reachable")}</b>. Demo data is synthetic and always labelled. Live mode refuses demo data entirely.</p></div>
    </div></section>`}
 
+
+
+/* ---------------- My Journeys ---------------- */
+const BASIS_CHIP=b=>b==="reported"?"c-ok":b&&b.startsWith("passed")?"c-ok":b&&b.startsWith("estimated")?"c-amber":b&&b.startsWith("expected")?"c-acc":"c-nv";
+function nowMs(){return S.mode==="snapshot"&&RV_SNAPSHOT.personal?Date.parse(RV_SNAPSHOT.personal.now):Date.now()}
+function countdown(iso){if(!iso)return "";const m=Math.round((Date.parse(iso)-nowMs())/6e4);if(m<=0)return m>-60?`${-m} min ago`:"";return m<60?`in ${m} min`:m<48*60?`in ${Math.floor(m/60)} h ${m%60} min`:`in ${Math.round(m/1440)} days`}
+function delayBars(p){if(!p||!p.stations)return "";const st=Object.values(p.stations)[0];if(!st)return "";const rec=st.recent||[];if(!rec.length)return "";
+  const W=220,H=54,max=Math.max(15,...rec.map(r=>r[1])),bw=Math.floor((W-8)/rec.length)-3;
+  const bars=rec.map((r,i)=>{const h=Math.max(2,Math.round((Math.max(r[1],0)/max)*(H-16)));const c=r[1]<=5?"var(--ok)":r[1]<=30?"var(--amber)":"var(--bad)";
+    return `<rect x="${4+i*(bw+3)}" y="${H-12-h}" width="${bw}" height="${h}" rx="2" fill="${c}"><title>${r[0]}: ${r[1]} min</title></rect>`}).join("");
+  return `<div class="row" style="gap:10px;align-items:center"><svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Recent delays">${bars}<line x1="0" y1="${H-12}" x2="${W}" y2="${H-12}" stroke="var(--line)"/><text x="4" y="${H-1}" font-size="9" style="fill:var(--muted)">last ${rec.length} runs</text></svg>
+    <div style="font-size:.82rem"><b>${st.median} min</b> median delay · ${st.on_time_pct}% within 5 min<br><span class="muted">${st.runs} runs seen by RAILVISION</span></div></div>`}
+async function tripCard(j){const ev=j.last_eval||{};const live=S.mode==="server";const pnr=j.last_pnr;
+  const p=ev.route_known?await API.punct(j.train,j.board):null;
+  const rem=Object.keys(j.reminders||{}).filter(k=>!k.endsWith("_dep"));const RL={day_before:"Heads-up",chart:"Chart time",leave:"Leave home",leave_update:"Leave update",dest_alarm:"Wake-up",arrived:"Arrived"};
+  const st={upcoming:["Upcoming","c-acc"],active:["Travelling","c-ok"],done:["Done","c-nv"],cancelled:["Cancelled","c-bad"]}[j.status]||[j.status,"c-nv"];
+  return `<div class="panel" style="display:grid;gap:10px">
+   <div class="row" style="justify-content:space-between;gap:8px"><div class="row" style="gap:10px;align-items:baseline"><span class="tno">${esc(j.train)}</span><span class="muted" style="font-weight:600">${esc(ev.train_name||"")}</span></div><span class="chip ${st[1]}">${st[0]}</span></div>
+   <div class="row" style="gap:6px;align-items:center;font-family:var(--f-display);font-size:1.6rem;font-weight:700"><span>${esc(j.board)}</span><span class="muted" style="font-size:1.1rem">→</span><span>${esc(j.dest)}</span><span class="muted mono" style="font-size:.8rem;font-family:var(--f-mono);font-weight:400;margin-left:8px">start ${esc(j.start_date)}${j.cls?" · "+esc(j.cls):""}</span></div>
+   ${ev.note?`<div class="warn">${esc(ev.note)}</div>`:""}
+   ${ev.dep?`<div class="three"><div><div class="eyebrow">Departs ${esc(j.board)}</div><div style="font-size:1.4rem;font-weight:700" class="mono">${hm(ev.dep)}</div><span class="chip ${BASIS_CHIP(ev.dep_basis)}">${esc(ev.dep_basis)}</span> <span class="muted" style="font-size:.8rem">${esc(countdown(ev.dep))}</span>${ev.platform_board?` <span class="chip c-nv">PF ${esc(ev.platform_board)}</span>`:""}</div>
+     <div><div class="eyebrow">Arrives ${esc(j.dest)}</div><div style="font-size:1.4rem;font-weight:700" class="mono">${hm(ev.arr)}</div><span class="chip ${BASIS_CHIP(ev.arr_basis)}">${esc(ev.arr_basis)}</span> <span class="muted" style="font-size:.8rem">${esc(countdown(ev.arr))}</span></div>
+     <div><div class="eyebrow">Delay now</div><div style="font-size:1.4rem;font-weight:700">${esc(delayTxt(ev.delay_min))}</div><span class="muted" style="font-size:.8rem">scheduled ${hm(ev.sched_dep)} → ${hm(ev.sched_arr)}</span></div></div>`:""}
+   <dl class="kv"><dt>Seat</dt><dd>${j.coach?esc(j.coach+" · "+(j.berth||"")):pnr&&pnr.passengers?pnr.passengers.map(x=>esc((x.current||{}).raw||"?")).join(", "):"—"}</dd>
+    <dt>PNR</dt><dd class="mono">${j.pnr?"…"+esc(j.pnr.slice(-3)):"not added"}${pnr&&pnr.chart_prepared!=null?` · chart ${pnr.chart_prepared?"prepared":"not prepared"}`:""}</dd>
+    <dt>Reminders</dt><dd>leave ${j.buffer_min}+15 min before · wake-up ${j.alarm_min} min before ${esc(j.dest)}${j.berth_check?" · berth check on":""}</dd></dl>
+   ${rem.length?`<div class="chips">${rem.map(k=>`<span class="chip c-ok">✓ ${esc(RL[k.split(":")[0]]||k)}</span>`).join("")}</div>`:""}
+   ${p?delayBars(p):""}
+   ${live?`<div class="row" style="gap:6px"><button class="btn ghost" data-jact="pnr" data-jid="${j.id}" ${j.pnr?"":"disabled"}>Check PNR</button><a class="btn ghost" style="text-decoration:none" href="/api/journeys/${j.id}.ics?token=${encodeURIComponent(S.token||"")}">Add to calendar</a><button class="btn ghost" data-open="${esc(j.train)}">Live view</button><button class="btn ghost" data-jact="del" data-jid="${j.id}">Remove</button></div>`:""}</div>`}
+function istD(off){return new Date(Date.now()+5.5*36e5+off*864e5).toISOString().slice(0,10)}
+async function vTrips(){
+  const js=await API.journeys().catch(()=>[]);const rem=await API.reminders().catch(()=>[]);const live=S.mode==="server";
+  js.forEach(j=>{S.dates[j.train]=j.start_date});
+  const form=live?`<form id="tripForm" class="panel" style="display:grid;gap:12px"><h3 style="margin:0">Add a trip</h3>
+    <div class="row"><label class="field">Train<input id="tTrain" class="mono" maxlength="5" inputmode="numeric" required style="width:6.5em"></label>
+     <label class="field">Start date (from origin)<input id="tDate" type="date" value="${istD(0)}"></label>
+     <label class="field">From<input id="tBoard" class="mono" maxlength="5" placeholder="NDLS" required style="width:6em"></label>
+     <label class="field">To<input id="tDest" class="mono" maxlength="5" placeholder="JP" required style="width:6em"></label>
+     <label class="field">Class<select id="tCls"><option value="">—</option>${["1A","2A","3A","3E","SL","CC","EC","2S"].map(c=>`<option>${c}</option>`).join("")}</select></label></div>
+    <div class="row"><label class="field">PNR (optional)<input id="tPnr" class="mono" maxlength="10" inputmode="numeric" style="width:9em"></label>
+     <label class="field">Home → station<select id="tBuf">${[15,30,45,60,90,120].map(m=>`<option value="${m}" ${m===45?"selected":""}>${m} min</option>`).join("")}</select></label>
+     <label class="field">Wake me before arrival<select id="tAlarm">${[15,20,30,45,60].map(m=>`<option value="${m}" ${m===30?"selected":""}>${m} min</option>`).join("")}</select></label>
+     <label class="row" style="gap:6px;font-size:.86rem;align-self:end"><input type="checkbox" id="tBerth"> Vacant-berth check at chart time</label></div>
+    <p class="muted" style="margin:0;font-size:.8rem">The start date is when the train leaves its origin; for an overnight train you board after midnight, it's often the day before. Two days before the trip, the train joins your watch list automatically.</p>
+    <div class="row"><button class="btn" type="submit">Save trip</button><span id="tMsg" class="muted" style="font-size:.86rem"></span>${js.length?`<a class="btn ghost" style="text-decoration:none;margin-left:auto" href="/api/journeys.ics?token=${encodeURIComponent(S.token||"")}">All trips to calendar</a>`:""}</div></form>`
+   :`<div class="banner demo"><b>Replay of a real run on demo trains.</b> These trips use the synthetic 9000x trains. The reminders were produced by RAILVISION's journey engine as the scenario clock moved through the morning.</div>`;
+  const cards=(await Promise.all(js.filter(j=>j.status!=="done").map(tripCard))).join("")||'<div class="panel"><p class="empty">No trips yet. Add your next train journey to get leave-home, chart-time and wake-up reminders.</p></div>';
+  const done=js.filter(j=>j.status==="done");
+  return `<section class="view"><div><div class="eyebrow">Personal</div><h2>My Journeys</h2><p class="lede">Each trip gets reminders that follow the live running status. Every time is marked as scheduled, expected, estimated or reported.</p></div>
+   <div class="two"><div class="col">${form}${cards}${done.length?`<details class="panel"><summary style="cursor:pointer"><b>Past trips (${done.length})</b></summary><div class="feed" style="margin-top:8px">${done.map(j=>`<div class="mono" style="font-size:.85rem">${esc(j.start_date)} · ${esc(j.train)} ${esc(j.board)}→${esc(j.dest)}</div>`).join("")}</div></details>`:""}</div>
+   <div class="col"><div class="panel"><h3>Reminder log</h3><div class="feed">${rem.length?rem.slice(0,12).map(noteHtml).join(""):'<p class="empty">Reminders appear here and on your phone as the trip gets close.</p>'}</div></div>
+    <div class="panel"><h3>What you'll get</h3><dl class="kv" style="font-size:.86rem"><dt>Day before</dt><dd>Departure time, seat, platform if known</dd><dt>Chart time</dt><dd>About 4 h before the train leaves its origin, if your berth isn't confirmed</dd><dt>Leave home</dt><dd>Your travel time + 15 min, moved by the live delay; updated if it shifts 15+ min</dd><dt>Wake-up</dt><dd>When the expected arrival at your stop is within your chosen minutes</dd><dt>Arrived</dt><dd>When the source reports the train at your stop</dd></dl></div></div></div></section>`}
+
+/* ---------------- Announcements ---------------- */
+const CAT_LABEL={cancellation:"Cancelled",diversion:"Diverted",reschedule:"Rescheduled",short_termination:"Short-terminated",regulation:"Blocks / regulation",weather:"Weather",special_train:"Special trains",extra_coach:"Extra coaches",platform:"Platform",ticketing:"Tickets & fares",safety:"Safety",new_service:"New services",general:"General"};
+const CAT_CHIP=c=>["cancellation","diversion","short_termination","regulation","weather","safety"].includes(c)?"c-bad":["reschedule","platform"].includes(c)?"c-amber":["special_train","extra_coach","new_service"].includes(c)?"c-ok":"c-nv";
+function newsItem(n){return `<article class="note" style="gap:6px"><div class="row" style="gap:6px;justify-content:space-between"><span class="row" style="gap:6px"><span class="chip ${n.source_kind==="x"?"c-acc":"c-nv"}">${esc(n.source_name)}</span>${n.official?'<span class="chip c-ok">Official</span>':""}${n.categories.filter(c=>c!=="general").map(c=>`<span class="chip ${CAT_CHIP(c)}">${esc(CAT_LABEL[c]||c)}</span>`).join("")}</span>
+   <span class="fresh">${esc(n.published_at?n.published_at.slice(0,16).replace("T"," "):hm(n.fetched_at))}</span></div>
+   <div style="font-weight:600;overflow-wrap:anywhere">${esc(n.title)}</div>${n.text&&n.text!==n.title?`<div class="muted" style="font-size:.86rem;overflow-wrap:anywhere">${esc(n.text.slice(0,280))}</div>`:""}
+   <div class="row" style="gap:6px">${n.score>=0.4?`<span class="chip ${n.score>=0.8?"c-bad":"c-amber"}" style="white-space:normal">For you: ${esc(n.why)}</span>`:""}${n.trains.map(t=>`<span class="chip c-nv mono">${esc(t)}</span>`).join("")}${n.stations.map(t=>`<span class="chip c-nv mono">${esc(t)}</span>`).join("")}${n.url?`<a href="${esc(n.url)}" target="_blank" rel="noopener" style="font-size:.84rem">Open source</a>`:""}</div></article>`}
+async function vNews(){
+  const f=S.newsF||(S.newsF={rel:true,cat:"",q:""});
+  const [items,src]=await Promise.all([API.news(f.rel,f.cat,f.q).catch(()=>[]),API.newsSources().catch(()=>({sources:[]}))]);const live=S.mode==="server";const x=src.x||{};
+  const cats=Object.keys(CAT_LABEL).filter(c=>c!=="general");
+  const srcRows=(src.sources||[]).map(s=>`<div class="row" style="justify-content:space-between;border-top:1px solid var(--line);padding:7px 0;gap:8px">
+    <div style="min-width:0"><div style="font-weight:600;font-size:.9rem">${esc(s.name)} ${s.official?'<span class="chip c-ok">Official</span>':""}</div><div class="muted" style="font-size:.78rem;overflow-wrap:anywhere">${esc(s.kind==="x"?"@"+s.handle+" · official X API":s.url||"read by your browser assistant")} · every ${s.interval_min} min · ${s.count} items${s.last_status?` · last: ${esc(s.last_status)}${s.last_detail?" ("+esc(s.last_detail)+")":""}`:""}</div></div>
+    ${live&&s.kind!=="assist"?`<span class="row" style="gap:6px"><button class="btn ghost" data-nact="${s.enabled?"off":"on"}" data-sid="${s.id}">${s.enabled?"On":"Off"}</button>${s.enabled?`<button class="btn ghost" data-nact="now" data-sid="${s.id}">Fetch</button>`:""}</span>`:`<span class="chip ${s.enabled||s.kind==="assist"?"c-ok":"c-nv"}">${s.kind==="assist"?"via assistant":s.enabled?"on":"off"}</span>`}</div>`).join("");
+  return `<section class="view"><div><div class="eyebrow">Official notices, in one place</div><h2>Announcements</h2>
+   <p class="lede">From PIB press releases, official railway web pages you add, NTES cancelled/diverted/rescheduled lists, and X (through X's official API, if you add a key). Anything that mentions your trains or stations is flagged, and urgent ones are sent to your phone.</p></div>
+   ${S.mode==="snapshot"?`<div class="banner demo"><b>Replay with mock feeds.</b> The items were produced by RAILVISION's real fetch, filter and relevance code reading <b>mock</b> PIB, zonal-website and X responses (the real ones aren't reachable from the build environment).</div>`:""}
+   <div class="two"><div class="col"><div class="panel" style="display:grid;gap:10px">
+     <div class="seg" role="group" aria-label="Filter"><button type="button" data-nf="rel" aria-pressed="${f.rel}">For you</button><button type="button" data-nf="all" aria-pressed="${!f.rel}">Everything</button>
+      <select id="nCat" style="border:1px solid var(--line);border-radius:999px;padding:5px 10px;background:var(--surface)"><option value="">All topics</option>${cats.map(c=>`<option value="${c}" ${f.cat===c?"selected":""}>${CAT_LABEL[c]}</option>`).join("")}</select>
+      <form id="nSearch" class="row" style="gap:6px"><input id="nQ" value="${esc(f.q)}" placeholder="Search" style="border:1px solid var(--line);border-radius:999px;padding:6px 12px;background:var(--bg);width:11em"></form></div>
+     <div class="feed">${items.length?items.map(newsItem).join(""):`<p class="empty">${f.rel?"Nothing that concerns your trains or stations right now. Switch to Everything to see all railway notices.":"No announcements yet."}</p>`}</div></div></div>
+   <div class="col"><div class="panel"><h3>Sources</h3>${srcRows||'<p class="empty">No sources.</p>'}</div>
+    <div class="panel"><h3>X (Twitter)</h3><p class="muted" style="font-size:.85rem;margin-top:0">Read only through X's official API with your own key. X charges per post read (about $0.005 each, checked Oct 2026). RAILVISION stops at your daily budget.</p>
+     <dl class="kv"><dt>Key</dt><dd>${x.configured?"added":"not added (set X_BEARER_TOKEN)"}</dd><dt>Today</dt><dd>${x.posts??0} of ${x.budget_posts??60} posts · ≈ $${(x.cost_usd??0).toFixed(3)}</dd></dl>
+     <div class="bar" style="margin-top:6px"><i style="width:${Math.min(100,Math.round(100*(x.posts||0)/(x.budget_posts||60)))}%"></i></div></div>
+    ${live?`<form id="srcForm" class="panel" style="display:grid;gap:10px"><h3 style="margin:0">Add a source</h3>
+     <div class="row"><label class="field">Type<select id="sKind"><option value="web">Official web page</option><option value="rss">RSS / Atom feed</option><option value="x">X account</option></select></label>
+      <label class="field" style="flex:1;min-width:180px">Address or @handle<input id="sUrl" placeholder="https://… or NWRailways"></label></div>
+     <div class="row"><button class="btn" type="submit">Add</button><span id="sMsg2" class="muted" style="font-size:.84rem"></span></div>
+     <details><summary class="muted" style="cursor:pointer;font-size:.85rem">Zonal railway websites</summary><div class="feed" style="margin-top:6px">${(src.suggested||[]).map(z=>`<div class="row" style="justify-content:space-between;gap:6px;font-size:.84rem"><span>${esc(z.name)} <span class="muted mono">${esc(z.url)}</span></span><button class="btn ghost" type="button" data-addsrc="${esc(z.url)}" data-name="${esc(z.name)}">Add</button></div>`).join("")}</div>
+      <p class="muted" style="font-size:.78rem">These addresses follow the usual pattern but weren't checked from here. Sites whose robots.txt says no are skipped automatically.</p></details></form>`:""}</div></div></section>`}
+
+/* ---------------- Help ---------------- */
+async function vHelp(){const h=await API.help().catch(()=>null)||{helplines:[],links:[]};
+  return `<section class="view"><div><div class="eyebrow">Works without internet once loaded</div><h2>Help & safety</h2></div>
+   <div class="three">${h.helplines.map(x=>`<div class="panel" style="display:grid;gap:4px"><div style="font-family:var(--f-display);font-size:3rem;font-weight:800;line-height:1">${esc(x.number)}</div><b>${esc(x.name)}</b><span class="muted" style="font-size:.86rem">${esc(x.use)}</span><span style="font-size:.86rem">${esc(x.hi)}</span>
+     <button class="btn ghost" type="button" data-copy="${esc(x.number)}" style="justify-self:start;margin-top:6px">Copy number</button></div>`).join("")}</div>
+   <div class="two"><div class="panel"><h3>Official links</h3>${h.links.map(l=>`<div style="padding:6px 0;border-top:1px solid var(--line)"><a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.name)}</a> <span class="muted mono" style="font-size:.78rem">${esc(l.url)}</span></div>`).join("")}</div>
+   <div class="panel"><h3>On the journey</h3><ul style="margin:0;padding-left:18px;font-size:.9rem;display:grid;gap:4px"><li>Check the station name board before getting down at night.</li><li>For a medical need, security issue or a complaint on board, call 139 and give your PNR, coach and berth.</li><li>Keep your PNR and coach handy in My Journeys; the wake-up alarm uses live position when available.</li><li>Chart vacancy is not a booking. Buy tickets only on IRCTC or at the counter.</li></ul></div></div></section>`}
 
 /* ---------------- watch list (browser assistant) ---------------- */
 const CAP_CHIP={ok:["Read OK","c-ok"],no_result:["No result","c-amber"],captcha:["CAPTCHA — needs you","c-bad"],blocked:["Site refused","c-bad"],
@@ -583,7 +698,8 @@ async function vWatch(){
    <div class="col">${await capturePanel()}${agentCard(a)}${search}${recipeCard(a)}</div></div></section>`}
 
 /* ---------------- shell ---------------- */
-const RENDER={overview:vOverview,watch:vWatch,train:vTrain,crossing:vCrossing,station:vStation,vacancy:vVacancy,alerts:vAlerts,assistant:vAssistant,sources:vSources,settings:vSettings};
+const _vSettings=()=>prefsPanel().then(h=>{S.prefsHtml=h;return vSettings()});
+const RENDER={overview:vOverview,trips:vTrips,news:vNews,help:vHelp,watch:vWatch,train:vTrain,crossing:vCrossing,station:vStation,vacancy:vVacancy,alerts:vAlerts,assistant:vAssistant,sources:vSources,settings:_vSettings};
 let renderSeq=0;
 async function render(){const seq=++renderSeq;const m=$("#main");
   try{const html=await RENDER[S.view]();if(seq!==renderSeq)return;
@@ -594,7 +710,7 @@ async function render(){const seq=++renderSeq;const m=$("#main");
 function tabs(){$("#tabs").innerHTML=VIEWS.map(([k,l])=>`<button class="tab" role="tab" type="button" data-view="${k}" aria-selected="${k===S.view}"><i class="asp"></i>${l}</button>`).join("")}
 function go(v){S.view=v;tabs();replayBar();render();try{history.replaceState(null,"","#"+v)}catch(e){}}
 
-function replayBar(){const r=$("#replay");if(r)r.hidden=!(S.mode==="snapshot"&&S.view!=="watch")}
+function replayBar(){const r=$("#replay");if(r)r.hidden=!(S.mode==="snapshot"&&["overview","train","crossing","station","vacancy","alerts","assistant"].includes(S.view))}
 function applyTheme(){const r=document.documentElement;if(S.theme==="system")r.removeAttribute("data-theme");else r.setAttribute("data-theme",S.theme);$("#themeBtn").textContent="Theme: "+S.theme;
   document.body.classList.toggle("lowbw",S.lowbw)}
 function tickClock(){const t=S.mode==="snapshot"?hm(API.now()):new Intl.DateTimeFormat("en-GB",{hour:"2-digit",minute:"2-digit",timeZone:"Asia/Kolkata"}).format(new Date());
@@ -614,6 +730,13 @@ async function ask(q){if(!q.trim())return;S.chat.push({me:true,text:q});
 document.addEventListener("click",async e=>{const t=e.target.closest("button,[data-open]");if(!t)return;const d=t.dataset;
   if(d.view)return go(d.view);
   if("wview" in d){S.capSel=d.wview||null;return render()}
+  if(d.nf){S.newsF.rel=d.nf==="rel";return render()}
+  if(d.copy){try{await navigator.clipboard.writeText(d.copy);t.textContent="Copied"}catch(e){t.textContent=d.copy}return}
+  if(d.jact){try{if(d.jact==="pnr"){await API.post(`/api/journeys/${d.jid}/check-pnr`,{});t.textContent="Opening PNR page on your computer…";return}
+     if(d.jact==="del")await API.post(`/api/journeys/${d.jid}`,null,true,"DELETE")}catch(err){t.textContent=err.message;return}return render()}
+  if(d.nact){try{if(d.nact==="now")await API.post(`/api/news/sources/${d.sid}/fetch-now`,{});else await API.post(`/api/news/sources/${d.sid}`,{enabled:d.nact==="on"},true,"PATCH")}catch(err){}return render()}
+  if(d.addsrc){try{await API.post("/api/news/sources",{kind:"web",url:d.addsrc,name:d.name});}catch(err){}return render()}
+  if(t.id==="dgSend"){try{await API.post("/api/digest/send-now",{});t.textContent="Sent"}catch(err){t.textContent=err.message}return}
   if(d.wdate!==undefined&&$("#wDate")){$("#wDate").value=istDate(+d.wdate);if($("#wBDate"))$("#wBDate").value=istDate(+d.wdate);return}
   if(d.wact){try{if(d.wact==="now")await API.post(`/api/assist/watch/${d.wid}/check-now`,{});
      else if(d.wact==="del")await API.post(`/api/assist/watch/${d.wid}`,null,true,"DELETE");
@@ -636,6 +759,7 @@ document.addEventListener("click",async e=>{const t=e.target.closest("button,[da
 function alertMsg(m){const x=$("#fMsg");if(x)x.textContent=m}
 document.addEventListener("change",e=>{const t=e.target;
   if(t.id==="cStation"){S.station=t.value;store.set("cstation",S.station);render()}
+  if(t.id==="nCat"){S.newsF.cat=t.value;render()}
   if(t.id==="vFrom"){S.vac.from=t.value;S.vac.sel=null;render()}
   if(t.id==="vCls"){S.vac.cls=t.value;S.vac.sel=null;render()}
   if(t.id==="lowbw"){S.lowbw=t.checked;store.set("lowbw",S.lowbw);applyTheme();restartPoll()}
@@ -647,6 +771,15 @@ document.addEventListener("submit",async e=>{e.preventDefault();const f=e.target
       destinations:["app",...[...f.querySelectorAll("input[name=wdest]:checked")].map(x=>x.value)]};
     if($("#wBCls").value&&$("#wBStn").value.trim())body.berth_checks=[{station:$("#wBStn").value.trim().toUpperCase(),class:$("#wBCls").value,journey_date:$("#wBDate").value}];
     try{const w=await API.post("/api/assist/watch",body);S.dates[w.train]=w.start_date;store.set("dates",S.dates);msg.textContent=`Added ${w.train}. The first check starts within a minute.`;setTimeout(render,600)}catch(err){msg.textContent=err.message}return}
+  if(f.id==="tripForm"){const m=$("#tMsg");const body={train:$("#tTrain").value.trim(),start_date:$("#tDate").value,board:$("#tBoard").value.trim().toUpperCase(),
+     dest:$("#tDest").value.trim().toUpperCase(),cls:$("#tCls").value||null,pnr:$("#tPnr").value.trim()||null,buffer_min:+$("#tBuf").value,alarm_min:+$("#tAlarm").value,berth_check:$("#tBerth").checked};
+    try{await API.post("/api/journeys",body);m.textContent="Saved.";setTimeout(render,300)}catch(err){m.textContent=err.message}return}
+  if(f.id==="nSearch"){S.newsF.q=$("#nQ").value.trim();return render()}
+  if(f.id==="srcForm"){const k=$("#sKind").value,v=$("#sUrl").value.trim();const b=k==="x"?{kind:"x",handle:v}:{kind:k,url:v};
+    try{await API.post("/api/news/sources",b);setTimeout(render,200)}catch(err){$("#sMsg2").textContent=err.message}return}
+  if(f.id==="prefForm"){const b={digest_time:$("#pTime").value,digest_enabled:$("#pDig").checked,keywords:$("#pKw").value.split(",").map(x=>x.trim()).filter(Boolean),
+     zones:$("#pZones").value.split(",").map(x=>x.trim()).filter(Boolean),announce_min_score:+$("#pMin").value,digest_destinations:["app",...[...f.querySelectorAll("input[name=pdest]:checked")].map(x=>x.value)]};
+    try{await API.post("/api/prefs",b,true,"PATCH");$("#pMsg").textContent="Saved."}catch(err){$("#pMsg").textContent=err.message}return}
   if(f.id==="tokForm"){const v=$("#tokIn").value.trim();if(v){S.token=v;store.set("token",v);go("watch")}return}
   if(f.id==="searchForm"){const q=$("#sQ").value.trim();if(q.length<3){$("#sMsg").textContent="Type at least 3 letters.";return}
     try{await API.post("/api/assist/jobs",{kind:"search",vars:{query:q}});$("#sMsg").textContent="Searching… results arrive in Tracking & alerts."}catch(err){$("#sMsg").textContent=err.message}return}
@@ -660,7 +793,7 @@ document.addEventListener("submit",async e=>{e.preventDefault();const f=e.target
 function togglePlay(){const b=$("#playBtn");if(S.playing){clearInterval(S.playing);S.playing=null;b.textContent="Play";return}
   b.textContent="Pause";S.playing=setInterval(()=>{if(S.frame>=RV_SNAPSHOT.frames.length-1){togglePlay();return}S.frame++;$("#scrub").value=S.frame;$("#scrubT").textContent=hm(API.now());tickClock();render()},1600)}
 
-let poll=null;function restartPoll(){clearInterval(poll);if(S.mode!=="server")return;poll=setInterval(()=>{if(!document.hidden&&["overview","watch","train","crossing","alerts"].includes(S.view))render()},S.lowbw?120000:30000)}
+let poll=null;function restartPoll(){clearInterval(poll);if(S.mode!=="server")return;poll=setInterval(()=>{if(!document.hidden&&["overview","trips","news","watch","train","crossing","alerts"].includes(S.view))render()},S.lowbw?120000:30000)}
 function sse(){if(S.mode!=="server"||!S.token||!("EventSource" in window))return;try{const es=new EventSource("/api/events?token="+encodeURIComponent(S.token));
   es.addEventListener("notification",ev=>{const d=JSON.parse(ev.data);if(window.Notification&&Notification.permission==="granted")new Notification(d.title,{body:d.short||""});if(["overview","alerts"].includes(S.view))render()})}catch(e){}}
 
