@@ -73,7 +73,17 @@ def clean_steps(raw: list[dict]) -> list[dict]:
 
 def build_recipe(name: str, kind: str, start_url: str, raw_steps: list[dict], sample: dict) -> Recipe:
     steps: list[Step] = []
+    skip_next_click = False
     for st in clean_steps(raw_steps):
+        sel_l = (st.get("selector") or "").lower()
+        if "captcha" in sel_l or "captcha" in (st.get("text") or "").lower():
+            if st["action"] == "fill" and not (steps and steps[-1].action == "human"):
+                steps.append(Step(action="human", timeout_ms=300000))     # never record a CAPTCHA answer
+                skip_next_click = True
+            continue
+        if skip_next_click and st["action"] in ("click", "press"):
+            skip_next_click = False          # the person pressed Submit as part of the human step
+            continue
         text = templatize(st.get("text") or "", sample) or None
         value = templatize(st.get("value") or "", sample) or None
         # an autocomplete row like "12951 - MUMBAI RAJDHANI" must match by the number only
@@ -84,7 +94,7 @@ def build_recipe(name: str, kind: str, start_url: str, raw_steps: list[dict], sa
                 any(s.action == "fill" and s.selector == st.get("selector") and s.value == "{train}" for s in steps):
             continue        # the site rewrote the box after a suggestion was picked; keep the clean fill
         steps.append(Step(action=st["action"], selector=st.get("selector"), text=text, value=value))
-    result = ["{train}"] if sample.get("train") else (["{query}"] if sample.get("query") else [])
+    result = ["{pnr}"] if sample.get("pnr") else ["{train}"] if sample.get("train") else (["{query}"] if sample.get("query") else [])
     return Recipe(name=name, kind=kind, start_url=start_url, mode="recorded", steps=steps, result_texts=result,
                   verified=False, notes=f"Recorded in TEACH mode with sample values {sorted(sample)}; becomes "
                                         "verified after its first successful automatic run.")

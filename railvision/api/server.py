@@ -13,7 +13,7 @@ import queue
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 
-from ..services.tracker import SchedulerThread
+from ..services.tracker import HousekeepingThread, SchedulerThread
 from .app import App, Request, parse_query
 
 
@@ -87,6 +87,7 @@ def main():
     app = App()
     if not a.no_scheduler:
         SchedulerThread(app.tracker, a.tick).start()
+        HousekeepingThread(app).start()
     srv = ThreadingHTTPServer((a.host, a.port), make_handler(app))
     srv.daemon_threads = True
     print(f"RAILVISION AI {app.mode.upper()} mode on http://{a.host}:{a.port}  (Ctrl+C to stop)")

@@ -126,6 +126,13 @@ class ChatEngine:
 
         if p.intent == "search":
             return self._search(p, user_id, rep, lang)
+        if p.intent == "helpline":
+            from ..services.extras import HELPLINES
+            return rep("\n".join(["📞 Railway helplines (free):"] + [f"• {h['number']} — {h['name'] if lang == 'en' else h['hi']}: {h['use']}"
+                                                                    for h in HELPLINES]) +
+                       "\nComplaints online: https://railmadad.indianrailways.gov.in/", "helpline")
+        if p.intent in ("trips", "news", "pnr"):
+            return self._personal(p, user_id, rep, lang)
 
         # task-control intents can work without a train number
         if p.intent in ("pause", "resume", "cancel", "change_interval", "delay_alert"):
@@ -321,6 +328,48 @@ class ChatEngine:
                  f"{' PF ' + r['platform'] if r.get('platform') else ''}{'' if r['halt'] else ' (non-stop)'}" for r in rows]
         return rep(f"Scheduled at {flat[0]} (source {prov.source_id}):\n" + "\n".join(lines), p.intent,
                    data={"board": rows}, is_demo=prov.is_demo)
+
+    def _personal(self, p, user_id, rep, lang):
+        jr, nw = getattr(self, "journeys", None), getattr(self, "news", None)
+        if not user_id:
+            return rep("Please sign in first.", p.intent)
+        if p.intent == "trips":
+            if not jr:
+                return rep("My Journeys is not available.", "trips")
+            js = jr.list(user_id, include_done=False)
+            if not js:
+                return rep(_L(lang, "No upcoming trips. Add one in My Journeys (train, start date, from, to, PNR).",
+                              "कोई आने वाली यात्रा नहीं। My Journeys में जोड़ें।"), "trips")
+            lines = ["🧳 Your upcoming trips:"]
+            for j in js[:8]:
+                ev = j.get("last_eval") or {}
+                when = f"dep {fmt_hm(parse_iso(ev['dep']))} ({ev.get('dep_basis')})" if ev.get("dep") else f"start {j['start_date']}"
+                lines.append(f"• {j['train']} {j['board']}→{j['dest']} · {j['start_date']} · {when}"
+                             + (f" · {j['coach']} {j['berth']}" if j.get("coach") else ""))
+            return rep("\n".join(lines), "trips", data={"journeys": js})
+        if p.intent == "news":
+            if not nw:
+                return rep("Announcements are not available.", "news")
+            items = nw.items(user_id, relevant_only=not p.train, limit=40)
+            if p.train:
+                items = [i for i in items if p.train in i["trains"]]
+            if not items:
+                return rep(_L(lang, "No announcements that concern your trains right now." + (f" (none mention {p.train})" if p.train else ""),
+                              "अभी आपकी ट्रेनों से जुड़ी कोई सूचना नहीं।"), "news")
+            return rep("📢 Latest announcements for you:\n" + "\n".join(
+                f"• {i['title'][:150]} — {i['source_name']}" + (f" ({i['why']})" if i.get("why") else "") for i in items[:6]),
+                "news", data={"items": items[:6]})
+        # PNR
+        if not p.pnr:
+            return rep(_L(lang, "Send the 10-digit PNR, e.g. 'PNR 4512345678'.", "10 अंकों का PNR भेजें।"), "pnr")
+        if not self.assist:
+            return rep("PNR checks need the browser assistant on your computer (start.bat / start.sh). "
+                       "Or check on https://www.indianrail.gov.in/ yourself.", "pnr")
+        job = self.assist.queue_job(user_id, "pnr", {"pnr": p.pnr})
+        return rep(_L(lang, f"🎫 Opening the official PNR page for …{p.pnr[-3:]} on your computer. The page has a CAPTCHA: "
+                            "please type it in the browser window when it asks. The status comes back here and on WhatsApp.",
+                      f"🎫 PNR …{p.pnr[-3:]} का आधिकारिक पेज आपके कंप्यूटर पर खुल रहा है। ब्राउज़र विंडो में CAPTCHA आप भरें।"),
+                   "pnr", data={"job": job})
 
     def _search(self, p, user_id, rep, lang):
         q = (p.query or "").strip()

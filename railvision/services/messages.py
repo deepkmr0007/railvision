@@ -101,6 +101,9 @@ HELP_TEXT = """🚆 RAILVISION AI — commands (English / हिंदी / Hing
 • pause / resume / stop tracking
 • change interval to 30 min
 • chart vacancy 12951 3A from NDLS
+• PNR 4512345678 — check PNR (you type the CAPTCHA on your computer)
+• my trips · announcements · news for 12951 · helpline
+• search train rajdhani · rajdhani train khojo
 • LINK 123456 — link this chat to your RAILVISION account
 • STOP — unsubscribe · START — subscribe again · DELETE MY DATA
 Live facts always come from the configured source with a timestamp."""

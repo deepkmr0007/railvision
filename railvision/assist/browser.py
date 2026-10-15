@@ -10,6 +10,7 @@ Rules built into the code, not left to configuration:
 from __future__ import annotations
 
 import base64
+import re
 import time
 from datetime import date, datetime
 from typing import Callable
@@ -135,7 +136,9 @@ class Runner:
                 pass
             self.check_blockers("while waiting for results")
             txt = self.page.evaluate("() => document.body ? document.body.innerText : ''")
-            has_time = __import__("re").search(r"\b([01]?\d|2[0-3]):[0-5]\d\b", txt)
+            has_time = re.search(r"\b([01]?\d|2[0-3]):[0-5]\d\b", txt)
+            if recipe.kind == "list" and re.search(r"(?<!\d)\d{5}(?!\d)", txt) and len(txt) > 80:
+                return True
             if (not wants or all(w and w in txt for w in wants)) and (has_time or recipe.kind != "status") and len(txt) > 80:
                 return True
             if self.handover and time.time() > end - 1:
@@ -166,7 +169,49 @@ class Runner:
                 return True
         return False
 
+    def run_list(self, recipe: Recipe):
+        """Exceptional-train lists: click the first matching menu entry, then read the page."""
+        for t in recipe.nav_texts:
+            if self._click_text([t]):
+                self._note(f"opened '{t}'")
+                self.page.wait_for_load_state("domcontentloaded")
+                time.sleep(1.5)
+                self.check_blockers(f"after opening {t}")
+                return
+        raise Blocked("recipe_failed", f"Could not find a menu entry like {recipe.nav_texts[0]!r}. Run TEACH once.")
+
+    def run_pnr(self, recipe: Recipe, vars_: dict):
+        pnr = str(vars_.get("pnr", ""))
+        items = self._scan()
+        f = self._fields(items, ["pnr"], [], types=("text", "number", "tel", ""))
+        if not f:
+            raise Blocked("recipe_failed", "No PNR box found on the page. Run TEACH once for pnr_status.")
+        loc = self._loc(f["id"]).first
+        loc.fill("")
+        loc.type(pnr, delay=60)
+        self._note("typed PNR")
+        d = self.page.evaluate(DETECT_JS)
+        if d["captcha"]:
+            if not self.handover:
+                raise Blocked("captcha", "The PNR page needs a CAPTCHA typed by you. Run the assistant with a visible window.")
+            self.on_status("needs_you", f"Type the CAPTCHA for PNR …{pnr[-3:]} and press Submit in the browser window.")
+            self.log("!! Please type the CAPTCHA and press Submit in the window — I'll read the result.")
+            end = time.time() + self.handover_timeout_s
+            while time.time() < end:
+                time.sleep(1.5)
+                txt = self.page.evaluate("() => document.body ? document.body.innerText : ''")
+                if pnr in txt and re.search(r"booking status|current status|chart", txt, re.I):
+                    self._note("you completed the CAPTCHA; result shown")
+                    self.on_status("resumed", "")
+                    return
+            raise Blocked("captcha", "Timed out waiting for the CAPTCHA to be typed.")
+        self._submit(f)
+
     def run_auto(self, recipe: Recipe, vars_: dict):
+        if recipe.kind == "list":
+            return self.run_list(recipe)
+        if recipe.kind == "pnr":
+            return self.run_pnr(recipe, vars_)
         items = self._scan()
         main_key = "query" if recipe.kind == "search" else "train"
         train_field = self._fields(items, ["train no", "train number", "train name", "train", "gaadi"], ["station", "from", "to"])
@@ -301,11 +346,28 @@ class Runner:
                     self.page.locator(sel).first.press(value or "Enter")
                 elif st.action == "wait":
                     time.sleep(min(float(value or 1), 10))
+                elif st.action == "human":            # a step only a person may do (e.g. typing a CAPTCHA)
+                    if not self.handover:
+                        raise Blocked("captcha", "This page needs you to type a CAPTCHA. Run the assistant with a visible window.")
+                    self.on_status("needs_you", "Please complete the CAPTCHA and press Submit in the browser window.")
+                    self.log("!! Your turn: type the CAPTCHA and press Submit in the window.")
+                    want = render("{pnr}", vars_) if "pnr" in vars_ else None
+                    end = time.time() + self.handover_timeout_s
+                    while time.time() < end:
+                        time.sleep(1.5)
+                        txt = self.page.evaluate("() => document.body ? document.body.innerText : ''")
+                        if (want is None or want in txt) and not self.page.evaluate(DETECT_JS)["captcha"]:
+                            break
+                    else:
+                        raise Blocked("captcha", "Timed out waiting for you to complete the CAPTCHA.")
+                    self.on_status("resumed", "")
                 elif st.action == "wait_text":
                     self.page.get_by_text(text, exact=False).first.wait_for(timeout=st.timeout_ms)
                 self._note(f"step {n}: {st.action} {(text or sel or value or '')[:40]}")
                 time.sleep(0.5)
-                self.check_blockers(f"after step {n}")
+                nxt = recipe.steps[n] if n < len(recipe.steps) else None
+                if not (nxt and nxt.action == "human") and recipe.kind != "pnr":
+                    self.check_blockers(f"after step {n}")
             except Blocked:
                 raise
             except Exception as e:
@@ -323,7 +385,8 @@ class Runner:
             self._note(f"open {recipe.start_url}")
             self.page.goto(recipe.start_url, wait_until="domcontentloaded", timeout=30000)
             time.sleep(1.0)
-            self.check_blockers("on opening the site")
+            if recipe.kind != "pnr":                 # the PNR form always carries a CAPTCHA for YOU to type
+                self.check_blockers("on opening the site")
             if recipe.mode == "recorded" and recipe.steps:
                 self.run_recorded(recipe, vars_)
             else:

@@ -17,12 +17,13 @@ from pathlib import Path
 
 NTES_URL = "https://enquiry.indianrail.gov.in/mntes/"
 IRCTC_CHARTS_URL = "https://www.irctc.co.in/online-charts/"
+PNR_URL = "https://www.indianrail.gov.in/enquiry/PNR/PnrEnquiry.html?locale=en"
 
 # formats tried when matching / filling a date on an unknown page (Indian sites use DD first)
 DATE_FORMATS = ["%d-%b-%Y", "%d-%m-%Y", "%d/%m/%Y", "%d %b %Y", "%d-%b-%y", "%d %b", "%d-%b", "%Y-%m-%d",
                 "%a, %d %b", "%d %B %Y", "%d.%m.%Y", "%d%m%Y"]
 
-PLACEHOLDER = re.compile(r"\{(train|query|station|class|date)(?::([^}]*))?\}")
+PLACEHOLDER = re.compile(r"\{(train|query|station|class|date|pnr)(?::([^}]*))?\}")
 
 
 @dataclass
@@ -38,7 +39,7 @@ class Step:
 @dataclass
 class Recipe:
     name: str                       # ntes_status | ntes_search | irctc_berth | custom name
-    kind: str                       # status | search | berth
+    kind: str                       # status | search | berth | list | pnr
     start_url: str
     mode: str = "auto"              # auto | recorded
     steps: list[Step] = field(default_factory=list)
@@ -108,7 +109,7 @@ def templatize(value: str, vars_: dict) -> str:
             else:
                 continue
             break
-    for key in ("train", "query", "station", "class"):
+    for key in ("pnr", "train", "query", "station", "class"):
         v = vars_.get(key)
         if v and str(v) in out and len(str(v)) >= 2:
             out = out.replace(str(v), "{%s}" % key)
@@ -125,6 +126,19 @@ DEFAULT_RECIPES = {
         name="ntes_search", kind="search", start_url=NTES_URL, mode="auto",
         nav_texts=["Train Schedule", "Trains Between Stations", "Spot Your Train", "Live Train Status"],
         result_texts=[], notes="UNVERIFIED. Teach a train-name search once (type a name, pick nothing, capture the list)."),
+    "ntes_cancelled": Recipe(
+        name="ntes_cancelled", kind="list", start_url=NTES_URL, mode="auto",
+        nav_texts=["Cancelled Trains", "Exceptional Trains"], result_texts=[],
+        notes="UNVERIFIED. Opens NTES' cancelled-trains list. Teach once if the menu differs."),
+    "ntes_rescheduled": Recipe(
+        name="ntes_rescheduled", kind="list", start_url=NTES_URL, mode="auto",
+        nav_texts=["Rescheduled Trains", "Exceptional Trains"], result_texts=[], notes="UNVERIFIED."),
+    "ntes_diverted": Recipe(
+        name="ntes_diverted", kind="list", start_url=NTES_URL, mode="auto",
+        nav_texts=["Diverted Trains", "Exceptional Trains"], result_texts=[], notes="UNVERIFIED."),
+    "pnr_status": Recipe(
+        name="pnr_status", kind="pnr", start_url=PNR_URL, mode="auto", result_texts=["{pnr}"],
+        notes="UNVERIFIED URL. Fills your PNR; the page's CAPTCHA is always typed by YOU in the visible window."),
     "irctc_berth": Recipe(
         name="irctc_berth", kind="berth", start_url=IRCTC_CHARTS_URL, mode="auto",
         nav_texts=[], result_texts=["{train}"],

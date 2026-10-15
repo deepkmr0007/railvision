@@ -33,7 +33,7 @@ def _pw():
 
 def _vars(a) -> dict:
     v = {}
-    for k in ("train", "date", "station", "query"):
+    for k in ("train", "date", "station", "query", "pnr"):
         if getattr(a, k, None):
             v[k] = getattr(a, k)
     if getattr(a, "cls", None):
@@ -124,10 +124,10 @@ def main(argv=None):
     sub = ap.add_subparsers(dest="cmd", required=True)
     for name in ("teach", "run"):
         s = sub.add_parser(name)
-        s.add_argument("recipe", help="ntes_status | ntes_search | irctc_berth | your own name")
+        s.add_argument("recipe", help="ntes_status | ntes_search | irctc_berth | ntes_cancelled | ntes_rescheduled | ntes_diverted | pnr_status")
         s.add_argument("--train"), s.add_argument("--date", help="train START date YYYY-MM-DD")
-        s.add_argument("--station"), s.add_argument("--cls", help="class e.g. 3A"), s.add_argument("--query")
-        s.add_argument("--url"), s.add_argument("--kind", choices=["status", "berth", "search"])
+        s.add_argument("--station"), s.add_argument("--cls", help="class e.g. 3A"), s.add_argument("--query"), s.add_argument("--pnr")
+        s.add_argument("--url"), s.add_argument("--kind", choices=["status", "berth", "search", "list", "pnr"])
         s.add_argument("--server"), s.add_argument("--token"), s.add_argument("--headless", action="store_true")
     g = sub.add_parser("agent")
     g.add_argument("--server", default="http://127.0.0.1:8000"), g.add_argument("--token"), g.add_argument("--headless", action="store_true")

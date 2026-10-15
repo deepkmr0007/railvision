@@ -69,6 +69,8 @@ class AssistEndToEnd(unittest.TestCase):
     def test_1_ten_trains_one_by_one_with_berth_and_crossing(self):
         self.set_recipe("ntes_status", "/ntes-a/")
         self.set_recipe("irctc_berth", "/irctc/")
+        for lk in ("cancelled", "rescheduled", "diverted"):
+            self.set_recipe(f"ntes_{lk}", "/ntes-a/")
         trains = sorted(TRAINS)[:10]
         for i, t in enumerate(trains):
             body = {"train": t, "start_date": self.today, "interval_min": 5,
@@ -82,7 +84,7 @@ class AssistEndToEnd(unittest.TestCase):
         t0 = time.time()
         n = ag.round()
         took = time.time() - t0
-        self.assertEqual(n, 11)                                  # 10 status pages + 1 berth chart
+        self.assertEqual(n, 14)            # 3 NTES exception lists + 10 status pages + 1 berth chart
         starts = [ln for ln in logs if ln.startswith("→ status")]
         self.assertEqual([s.split()[2] for s in starts], trains, "trains are checked one at a time, in order")
         watch = self.client.call("GET", "/api/assist/watch")["watch"]
@@ -101,6 +103,12 @@ class AssistEndToEnd(unittest.TestCase):
         notes = self.client.call("GET", "/api/notifications")["items"]
         self.assertTrue({"STATUS_REPORT", "VACANCY_CHANGE"} <= {x["type"] for x in notes}, {x["type"] for x in notes})
         self.assertEqual(self.client.call("GET", "/api/assist/work")["watch"], [], "nothing due again before the interval")
+        # exception lists: watched train 12956 is on the mock "cancelled" list -> announcement + alert
+        lists_caps = [c for c in caps if c["kind"] == "list"]
+        self.assertEqual({c["parse"]["list"] for c in lists_caps}, {"cancelled", "rescheduled", "diverted"})
+        news = self.client.call("GET", "/api/news?relevant=1")["items"]
+        self.assertTrue(any("12956" in n["title"] and n["score"] == 1.0 for n in news), [n["title"] for n in news])
+        self.assertTrue(any(x["type"] == "ANNOUNCEMENT" and "12956" in x["body"] for x in notes + self.client.call("GET", "/api/notifications")["items"]))
         print(f"\n   e2e: 11 pages in {took:.1f}s, mock hits {self.mock.stats['hits']}")
 
     def test_2_table_layout_and_on_demand_jobs(self):
@@ -133,6 +141,30 @@ class AssistEndToEnd(unittest.TestCase):
         failed = [n for n in self.client.call("GET", "/api/notifications")["items"] if n["type"] == "ASSIST_RESULT"]
         self.assertTrue(any("Could not read" in n["body"] and "CAPTCHA" in n["body"] for n in failed), failed)
         self.assertFalse(any("captcha" in ln.lower() and "solved" in ln.lower() for ln in logs))
+
+    def test_5_pnr_you_type_the_captcha(self):
+        self.client.call("PUT", "/api/assist/recipes/pnr_status",
+                         {"kind": "pnr", "start_url": self.mbase + "/pnr/?autosolve=1", "mode": "auto", "result_texts": ["{pnr}"]})
+        j = self.client.call("POST", "/api/journeys", {"train": "12951", "start_date": self.today, "board": "NDLS", "dest": "MMCT",
+                                                       "cls": "3A", "pnr": "4512345678"})
+        self.client.call("POST", f"/api/journeys/{j['id']}/check-pnr")
+        logs = []
+        ag = self.agent(logs)
+        ag.headed = True                       # handover allowed: the mock page's script plays the person typing the CAPTCHA
+        ag.round()
+        self.assertTrue(any("Your turn" in ln or "CAPTCHA" in ln for ln in logs), logs)
+        j2 = self.client.call("GET", f"/api/journeys/{j['id']}")
+        p = j2["last_pnr"]
+        self.assertEqual([x["current"]["status"] for x in p["passengers"]], ["RAC", "CNF"])
+        self.assertIs(p["chart_prepared"], False)
+        res = [n for n in self.client.call("GET", "/api/notifications")["items"] if n["type"] == "ASSIST_RESULT" and "PNR" in n["body"]]
+        self.assertTrue(res and "RAC/4" in res[0]["body"])
+        # headless agents must never get past a CAPTCHA
+        self.client.call("POST", f"/api/journeys/{j['id']}/check-pnr")
+        ag2 = self.agent([])
+        ag2.round()
+        failed = [x for x in self.client.call("GET", "/api/assist/jobs")["items"] if x["kind"] == "pnr"][0]
+        self.assertEqual(failed["status"], "failed")
 
     def test_4_teach_then_replay_for_other_trains(self):
         page = self.browser.new_page()

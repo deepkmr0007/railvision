@@ -25,7 +25,10 @@ from ..delivery.whatsapp import (ChannelCopyQueue, WhatsAppCloudClient, WhatsApp
                                  WhatsAppPersonal, parse_inbound, verify_challenge, verify_signature)
 from ..providers.base import NotAuthorized, NotSupported, ProviderError
 from ..providers.registry import SOURCE_MATRIX, ProviderRegistry
+from ..news.service import SUGGESTED_WEB, NewsService
 from ..services.assist_service import AssistService
+from ..services.extras import HELP_LINKS, HELPLINES, DigestService, punctuality
+from ..services.journeys import JourneyService
 from ..services.resilience import KeyedRateLimiter
 from ..services.store import Store
 from ..services.tracker import TaskError, TrackingEngine
@@ -74,7 +77,7 @@ def _json(status: int, obj) -> tuple[int, dict, bytes]:
 
 class App:
     def __init__(self, store: Store | None = None, registry: ProviderRegistry | None = None, clock=now_ist,
-                 wa_transport=None, tg_transport=None, logger=print, assist: bool | None = None):
+                 wa_transport=None, tg_transport=None, logger=print, assist: bool | None = None, news_transport=None):
         self.mode = os.environ.get("RAILVISION_MODE", "demo")
         self.clock, self.log = clock, logger
         self.store = store or Store(os.environ.get("RAILVISION_DB", "railvision.db"),
@@ -100,7 +103,15 @@ class App:
                 raise ValueError("The browser assistant reads real official pages: run it with RAILVISION_MODE=live")
             self.assist = AssistService(self.store, self.tracker, self.dispatcher, clock, self.app_url, logger)
             self.registry.providers.insert(0, self.assist.provider)    # first choice; licensed providers after it
+        nkw = {"transport": news_transport} if news_transport else {}
+        self.news = NewsService(self.store, self.dispatcher, clock, log=logger, **nkw)
+        self.journeys = JourneyService(self.store, self.tracker, self.dispatcher, clock, assist=self.assist, news=self.news, log=logger)
+        self.digest = DigestService(self.store, self.dispatcher, self.news, self.journeys, self.assist, clock)
+        if self.assist:
+            self.assist.news = self.news
+        self.news_enabled = os.environ.get("RAILVISION_NEWS", "true" if self.mode == "live" else "false").lower() == "true"
         self.chat = ChatEngine(self.tracker, self.registry, self.store, LLMIntentParser(), assist=self.assist)
+        self.chat.news, self.chat.journeys = self.news, self.journeys
         self.wa_bot = WhatsAppBot(self.store, self.chat, self.wa_client, logger=logger)
         self.ip_limit = KeyedRateLimiter(int(os.environ.get("RAILVISION_RATE_PER_MIN", "120")))
         self.chat_limit = KeyedRateLimiter(30)
@@ -140,6 +151,28 @@ class App:
         r("POST", r"/api/channel-queue/(?P<pid>\d+)/published", self.channel_published, True)
         r("GET", r"/api/reports/summary", self.report, True)
         r("POST", r"/api/admin/tick", self.admin_tick, True)
+        # announcements, journeys, stats, digest, help
+        r("GET", r"/api/news", self.nw_items, True)
+        r("GET", r"/api/news/sources", self.nw_sources, True)
+        r("POST", r"/api/news/sources", self.nw_source_add, True)
+        r("PATCH", r"/api/news/sources/(?P<sid>[a-z0-9_]+)", self.nw_source_patch, True)
+        r("DELETE", r"/api/news/sources/(?P<sid>[a-z0-9_]+)", self.nw_source_del, True)
+        r("POST", r"/api/news/sources/(?P<sid>[a-z0-9_]+)/fetch-now", self.nw_fetch_now, True)
+        r("GET", r"/api/news/usage", self.nw_usage, True)
+        r("GET", r"/api/prefs", self.pr_get, True)
+        r("PATCH", r"/api/prefs", self.pr_patch, True)
+        r("GET", r"/api/journeys", self.jn_list, True)
+        r("POST", r"/api/journeys", self.jn_add, True)
+        r("GET", r"/api/journeys\.ics", self.jn_ics_all, True)
+        r("GET", r"/api/journeys/(?P<jid>j_[0-9a-f]+)\.ics", self.jn_ics_one, True)
+        r("GET", r"/api/journeys/(?P<jid>j_[0-9a-f]+)", self.jn_get, True)
+        r("PATCH", r"/api/journeys/(?P<jid>j_[0-9a-f]+)", self.jn_patch, True)
+        r("DELETE", r"/api/journeys/(?P<jid>j_[0-9a-f]+)", self.jn_del, True)
+        r("POST", r"/api/journeys/(?P<jid>j_[0-9a-f]+)/check-pnr", self.jn_pnr, True)
+        r("GET", r"/api/stats/punctuality", self.st_punct, True)
+        r("GET", r"/api/digest/preview", self.dg_preview, True)
+        r("POST", r"/api/digest/send-now", self.dg_send, True)
+        r("GET", r"/api/help", self.help)
         # browser assistant
         r("GET", r"/api/assist/status", self.as_status, True)
         r("GET", r"/api/assist/watch", self.as_watch_list, True)
@@ -164,7 +197,7 @@ class App:
 
     def _auth(self, req: Request) -> str:
         h = req.headers.get("authorization", "")
-        tok = h[7:] if h.lower().startswith("bearer ") else (req.q1("token") if req.path == "/api/events" else None)
+        tok = h[7:] if h.lower().startswith("bearer ") else (req.q1("token") if (req.path == "/api/events" or req.path.endswith(".ics")) else None)
         uid = self.store.user_for_token(tok or "")
         if not uid:
             raise HttpError(401, "authentication required")
@@ -413,6 +446,119 @@ class App:
                                      ("ACTIVE", "PAUSED", "COMPLETED", "CANCELLED", "PENDING_CONFIRMATION")},
                            "notifications_by_type": by_type, "engine_metrics": dict(self.tracker.metrics),
                            "store": self.store.stats()})
+
+    # ------------------------------------------------------------------ announcements
+    def nw_items(self, req, uid):
+        items = self.news.items(uid, relevant_only=req.q1("relevant") == "1", category=req.q1("category") or None,
+                                q=(req.q1("q") or "")[:60] or None, limit=min(int(req.q1("limit", "60") or 60), 200))
+        return _json(200, {"items": items, "enabled": self.news_enabled})
+
+    def nw_sources(self, req, uid):
+        return _json(200, {"sources": self.news.sources(), "suggested": SUGGESTED_WEB, "x": self.news.x_usage_today(),
+                           "enabled": self.news_enabled})
+
+    def nw_source_add(self, req, uid):
+        return _json(201, self._ve(self.news.add_source, req.json()))
+
+    def nw_source_patch(self, req, uid, sid):
+        s = self._ve(self.news.update_source, sid, req.json())
+        if not s:
+            raise HttpError(404, "not found")
+        return _json(200, s)
+
+    def nw_source_del(self, req, uid, sid):
+        if not self.news.delete_source(sid):
+            raise HttpError(404, "not found")
+        return _json(200, {"deleted": sid})
+
+    def nw_fetch_now(self, req, uid, sid):
+        return _json(200, self.news.fetch_now(sid))
+
+    def nw_usage(self, req, uid):
+        return _json(200, self.news.x_usage_today())
+
+    def pr_get(self, req, uid):
+        return _json(200, self.news.prefs(uid))
+
+    def pr_patch(self, req, uid):
+        return _json(200, self._ve(self.news.set_prefs, uid, req.json()))
+
+    # ------------------------------------------------------------------ journeys
+    def jn_list(self, req, uid):
+        return _json(200, {"journeys": self.journeys.list(uid, include_done=req.q1("all") == "1")})
+
+    def jn_add(self, req, uid):
+        j = self._ve(self.journeys.add, uid, req.json())
+        self.journeys.tick()
+        return _json(201, self.journeys.get(uid, j["id"]))
+
+    def jn_get(self, req, uid, jid):
+        j = self.journeys.get(uid, jid)
+        if not j:
+            raise HttpError(404, "not found")
+        return _json(200, j)
+
+    def jn_patch(self, req, uid, jid):
+        j = self._ve(self.journeys.update, uid, jid, req.json())
+        if not j:
+            raise HttpError(404, "not found")
+        return _json(200, j)
+
+    def jn_del(self, req, uid, jid):
+        if not self.journeys.delete(uid, jid):
+            raise HttpError(404, "not found")
+        return _json(200, {"deleted": jid})
+
+    def jn_pnr(self, req, uid, jid):
+        try:
+            return _json(201, self.journeys.check_pnr(uid, jid))
+        except LookupError:
+            raise HttpError(404, "not found")
+        except ValueError as e:
+            raise HttpError(422, str(e))
+
+    def _ics(self, body: str, name: str):
+        return 200, {"Content-Type": "text/calendar; charset=utf-8", "Content-Disposition": f'attachment; filename="{name}"'}, body.encode()
+
+    def jn_ics_all(self, req, uid):
+        return self._ics(self.journeys.ics(self.journeys.list(uid, include_done=False)), "railvision-trips.ics")
+
+    def jn_ics_one(self, req, uid, jid):
+        j = self.journeys.get(uid, jid)
+        if not j:
+            raise HttpError(404, "not found")
+        return self._ics(self.journeys.ics([j]), f"trip-{j['train']}-{j['start_date']}.ics")
+
+    # ------------------------------------------------------------------ stats, digest, help
+    def st_punct(self, req, uid):
+        t = req.q1("train") or ""
+        if not re.fullmatch(r"\d{5}", t):
+            raise HttpError(400, "train must be 5 digits")
+        st = (req.q1("station") or "").upper() or None
+        return _json(200, punctuality(self.store, t, st, min(int(req.q1("days", "30") or 30), 180), include_demo=self.mode == "demo"))
+
+    def dg_preview(self, req, uid):
+        return _json(200, {"text": self.digest.compose(uid), "prefs": self.news.prefs(uid)})
+
+    def dg_send(self, req, uid):
+        return _json(200, {"sent": self.digest.send(uid)})
+
+    def help(self, req):
+        return _json(200, {"helplines": HELPLINES, "links": HELP_LINKS})
+
+    # ------------------------------------------------------------------ background work (every minute)
+    def housekeeping(self) -> dict:
+        out = {}
+        for name, fn in (("news", self.news.tick if self.news_enabled else None), ("journeys", self.journeys.tick),
+                         ("digest", self.digest.tick)):
+            if fn is None:
+                continue
+            try:
+                out[name] = fn()
+            except Exception as e:
+                self.log(f"[housekeeping] {name}: {e!r}")
+                out[name] = {"error": repr(e)}
+        return out
 
     # ------------------------------------------------------------------ browser assistant
     def _as(self):

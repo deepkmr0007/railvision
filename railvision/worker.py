@@ -29,6 +29,7 @@ def main():
             s = app.tracker.tick()
             if s["due"]:
                 print(f"tick: {s}")
+            app.housekeeping()
         except Exception as e:
             print(f"tick error: {e!r}")
         time.sleep(every)

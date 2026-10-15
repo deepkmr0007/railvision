@@ -16,7 +16,7 @@ from datetime import date, datetime, timedelta
 from ..core.models import LiveObservation, ObsKind, Route, ScheduledStop, VacancySnapshot
 from ..core.status import build_status
 from ..core.timeutil import fmt_hm, iso, now_ist, parse_iso
-from ..parsers import irctc, ntes
+from ..parsers import irctc, lists, ntes
 from ..providers.base import NotSupported, ProviderAdapter, ProviderError
 from ..assist.recipes import DEFAULT_RECIPES, IRCTC_CHARTS_URL, NTES_URL, Recipe
 
@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS assist_recipes (name TEXT PRIMARY KEY, recipe TEXT NO
 CREATE TABLE IF NOT EXISTS assist_jobs (
   id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, kind TEXT NOT NULL, recipe TEXT NOT NULL, vars TEXT NOT NULL,
   status TEXT NOT NULL, created_at TEXT NOT NULL, claimed_at TEXT, capture_id INTEGER, summary TEXT);
+CREATE TABLE IF NOT EXISTS assist_lists_state (user_id TEXT NOT NULL, list TEXT NOT NULL, last_at TEXT, PRIMARY KEY(user_id, list));
 CREATE TABLE IF NOT EXISTS assist_agents (user_id TEXT PRIMARY KEY, last_seen TEXT, info TEXT, state TEXT, state_reason TEXT, state_at TEXT);
 """
 
@@ -141,6 +142,9 @@ class AssistService:
         self.provider = AssistProvider(self)
         # sent to the agent each round; the agent never goes below its own 15 s floor in real use
         self.pacing = {"min_gap_s": 20, "jitter_s": 10, "max_pages_per_day": 400, "poll_s": 15}
+        self.lists_interval_min = 120          # cancelled / rescheduled / diverted lists, only while you watch something
+        self.news = None                       # NewsService (exception lists become announcements)
+        self.on_pnr = None                     # callback(user_id, parsed) — updates My Journeys
 
     # ------------------------------------------------------------------ helpers
     def _j(self, v):
@@ -294,9 +298,15 @@ class AssistService:
 
     # ------------------------------------------------------------------ jobs (on-demand)
     def queue_job(self, user_id: str, kind: str, vars_: dict) -> dict:
-        recipe = {"status": "ntes_status", "search": "ntes_search", "berth": "irctc_berth"}.get(kind)
+        recipe = {"status": "ntes_status", "search": "ntes_search", "berth": "irctc_berth", "pnr": "pnr_status"}.get(kind)
+        if kind == "list":
+            if vars_.get("list") not in ("cancelled", "rescheduled", "diverted"):
+                raise ValueError("list must be cancelled, rescheduled or diverted")
+            recipe = f"ntes_{vars_['list']}"
+        if kind == "pnr" and not re.fullmatch(r"\d{10}", str(vars_.get("pnr", ""))):
+            raise ValueError("PNR must be 10 digits")
         if not recipe:
-            raise ValueError("kind must be status, search or berth")
+            raise ValueError("kind must be status, search, berth, list or pnr")
         pending = self.store.q("SELECT COUNT(*) n FROM assist_jobs WHERE user_id=? AND status IN ('queued','running')", (user_id,))[0]["n"]
         if pending >= 10:
             raise ValueError("10 checks are already waiting; try again shortly")
@@ -359,6 +369,18 @@ class AssistService:
                               "ORDER BY id LIMIT 5", (user_id, iso(now - timedelta(minutes=LEASE_MIN)))):
             jobs.append({"job_id": j["id"], "recipe": j["recipe"], "kind": j["kind"], "vars": json.loads(j["vars"])})
             self.store.x("UPDATE assist_jobs SET status='running', claimed_at=? WHERE id=?", (iso(now), j["id"]))
+        has_interest = bool(rows) or bool(self.store.q("SELECT 1 FROM assist_watch WHERE user_id=? AND active=1 LIMIT 1", (user_id,)))
+        try:
+            has_interest = has_interest or bool(self.store.q("SELECT 1 FROM journeys WHERE user_id=? AND status IN ('upcoming','active') LIMIT 1", (user_id,)))
+        except Exception:
+            pass
+        if has_interest and len(jobs) < 5:
+            for lk in ("cancelled", "rescheduled", "diverted"):
+                r = self.store.q("SELECT last_at FROM assist_lists_state WHERE user_id=? AND list=?", (user_id, lk))
+                if r and r[0]["last_at"] and parse_iso(r[0]["last_at"]) > now - timedelta(minutes=self.lists_interval_min):
+                    continue
+                self.store.x("INSERT OR REPLACE INTO assist_lists_state VALUES (?,?,?)", (user_id, lk, iso(now)))
+                jobs.append({"job_id": None, "recipe": f"ntes_{lk}", "kind": "list", "vars": {"list": lk}})
         return {"watch": items, "jobs": jobs, "recipes": self.recipes(),
                 "pacing": dict(self.pacing),
                 "server_time": iso(now)}
@@ -366,8 +388,8 @@ class AssistService:
     # ------------------------------------------------------------------ ingest
     def ingest(self, user_id: str, c: dict) -> dict:
         kind = c.get("kind")
-        if kind not in ("status", "berth", "search"):
-            raise ValueError("kind must be status, berth or search")
+        if kind not in ("status", "berth", "search", "list", "pnr"):
+            raise ValueError("kind must be status, berth, search, list or pnr")
         wid, jid = c.get("watch_id"), c.get("job_id")
         w = self.get_watch(user_id, wid) if wid else None
         if wid and not w:
@@ -410,6 +432,18 @@ class AssistService:
                 parse["vacancy"] = v
                 headline = ("Chart not prepared yet" if v["chart_prepared"] is False else
                             f"{v['total_vacant']} vacant berth entries ({v['from_boarding']} from {vars_.get('station')})")
+            elif kind == "list":
+                lst = lists.parse_exceptions(c, vars_.get("list", "cancelled"))
+                confidence = lst["confidence"]
+                parse.update({"list": lst["list"], "items": lst["items"], "count": lst["count"]})
+                headline = f"NTES {lists.LIST_LABEL.get(lst['list'], lst['list'])} trains list: {lst['count']} entries"
+            elif kind == "pnr":
+                pr = lists.parse_pnr(c, vars_.get("pnr", ""))
+                confidence = pr["confidence"]
+                parse["pnr_result"] = pr
+                cur = ", ".join(f"P{p['n']} {(p.get('current') or {}).get('raw') or '?'}" for p in pr["passengers"]) or "no passenger rows read"
+                headline = f"PNR …{vars_.get('pnr', '')[-3:]}: {cur}" + ("" if pr["chart_prepared"] is None else
+                                                                          f" · chart {'prepared' if pr['chart_prepared'] else 'not prepared'}")
             else:
                 s = irctc.parse_search(c, vars_.get("query", ""))
                 confidence = s["confidence"]
@@ -425,6 +459,18 @@ class AssistService:
         if status == "ok" and (confidence or 0) >= 0.6:      # a recorded recipe that produced a confident read
             self.store.x("UPDATE assist_recipes SET verified=1 WHERE name=?", (c.get("recipe"),))
         result = {"capture_id": cid, "status": status, "headline": headline, "confidence": confidence}
+        if kind == "list" and status == "ok" and parse.get("items") is not None:
+            label = lists.LIST_LABEL.get(parse["list"], parse["list"])
+            news_items = [{"guid": f"{parse['list']}:{i['train']}:{i.get('date') or ''}:{i.get('detail', '')[:40]}",
+                           "title": f"{i['train']} {i.get('name') or ''} — {label}{(' on ' + i['date']) if i.get('date') else ''}".strip(),
+                           "text": f"{label} (NTES list). {i.get('detail') or ''}", "url": c.get("url") or NTES_URL} for i in parse["items"]]
+            if self.news:
+                self.news.ingest_external(f"ntes_{parse['list']}", f"NTES {label} trains", news_items)
+        if kind == "pnr" and status == "ok" and self.on_pnr:
+            try:
+                self.on_pnr(user_id, parse.get("pnr_result") or {})
+            except Exception as e:
+                self.log(f"[assist] pnr hook: {e!r}")
         if w:
             result.update(self._after_watch(user_id, w, kind, status, cid, parse, headline))
         if job:
@@ -561,6 +607,19 @@ class AssistService:
                 text = self.status_text({"train": v["train"], "start_date": v["date"]}, route, st, parse)
             else:
                 text = f"Checked NTES for {v['train']}: {headline}. Open the dashboard to see the page."
+        elif kind == "pnr":
+            pr = parse.get("pnr_result") or {}
+            lines = [f"🎫 PNR …{v.get('pnr', '')[-3:]} · {pr.get('train') or ''} {pr.get('train_name') or ''}".rstrip(),
+                     f"Journey: {pr.get('doj') or '?'} · {pr.get('from') or '?'} → {pr.get('to') or '?'} · {pr.get('class') or ''}"]
+            for p in pr.get("passengers", []):
+                b, cu = p.get("booking") or {}, p.get("current") or {}
+                lines.append(f"Passenger {p['n']}: booked {b.get('raw') or '?'} → now {cu.get('raw') or '?'}")
+            if pr.get("chart_prepared") is not None:
+                lines.append("Chart: " + ("prepared" if pr["chart_prepared"] else "not prepared yet"))
+            lines.append(f"Checked {fmt_hm(self.clock())} IST on the official PNR page (CAPTCHA typed by you)")
+            text = "\n".join(lines)
+        elif kind == "list":
+            text = f"NTES {parse.get('list')} trains: {parse.get('count', 0)} entries read."
         elif kind == "search":
             rows = parse.get("results") or []
             text = (f"🔎 Trains matching '{v.get('query')}' (official site):\n" +

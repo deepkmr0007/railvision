@@ -16,6 +16,10 @@ from .. import stations as stn
 DEV_DIGITS = str.maketrans("०१२३४५६७८९", "0123456789")
 
 INTENT_PATTERNS: list[tuple[str, str]] = [
+    ("helpline", r"helpline|emergency|complain|rail ?madad|\brpf\b|security|police|शिकायत|हेल्पलाइन|आपात"),
+    ("pnr", r"\bpnr\b|(?<!\d)\d{10}(?!\d)"),
+    ("trips", r"my (trips?|journeys?|travels?|bookings?)|meri yatra|मेरी यात्रा|upcoming (trips?|journeys?)"),
+    ("news", r"announcement|\bnews\b|khabar|ख़बर|खबर|सूचना|notices?\b|any updates|kya update"),
     ("help", r"^/?(help|start)$|\bhelp\b|commands|madad|मदद|सहायता"),
     ("link", r"^link\s+\d{6}$"),
     ("confirm", r"^(yes|y|haan|han|ha|haa|ji|ok|okay|confirm|sure|theek hai|thik hai|हाँ|हां|जी|ठीक है)[.! ]*$"),
@@ -49,6 +53,7 @@ class Parsed:
     travel_class: str | None = None
     link_code: str | None = None
     query: str | None = None
+    pnr: str | None = None
     lang: str = "en"
     raw: str = ""
 
@@ -90,6 +95,9 @@ def parse(text: str, today: date) -> Parsed:
             words.pop()
         q = " ".join(words).strip()
         p.query = q or None
+    if intent == "pnr":
+        m = re.search(r"(?<!\d)(\d{10})(?!\d)", t)
+        p.pnr = m.group(1) if m else None
     if intent == "link":
         p.link_code = re.search(r"\d{6}", t).group(0)
 

@@ -84,12 +84,14 @@ class MockData:
 
 PAGE_A = """<!doctype html><html><head><meta charset="utf-8"><title>MOCK National Train Enquiry</title></head><body>
 <h3>MOCK National Train Enquiry System (test page — not the real site)</h3>
-<nav><a href="#" id="spot">Spot Your Train</a> · <a href="#">Cancelled Trains</a> · <a href="#">Diverted Trains</a> · <a href="#">Rescheduled Trains</a></nav>
+<nav><a href="#" id="spot">Spot Your Train</a> · <a href="#" class="ex" data-l="cancelled">Cancelled Trains</a> · <a href="#" class="ex" data-l="diverted">Diverted Trains</a> · <a href="#" class="ex" data-l="rescheduled">Rescheduled Trains</a></nav><div id="exl"></div>
 <div id="form" style="display:none"><label for="trn">Train Number / Name</label> <input id="trn" placeholder="Enter Train No. or Name" autocomplete="off">
 <ul id="ac"></ul><div id="dates"></div><button id="go" style="display:none">Get Status</button></div><div id="res"></div>
 <script>
 const T=%TRAINS%; let chosen=null, day=null;
 document.getElementById('spot').onclick=e=>{e.preventDefault();document.getElementById('form').style.display='block'};
+document.querySelectorAll('.ex').forEach(a=>a.onclick=async e=>{e.preventDefault();const r=await fetch('/ntes-a/api/list?l='+a.dataset.l);const j=await r.json();
+  document.getElementById('exl').innerHTML='<h4>'+a.textContent+'</h4><table border=1><tr><th>Train</th><th>Name</th><th>Start Date</th><th>Details</th></tr>'+j.map(x=>'<tr><td>'+x.no+'</td><td>'+x.name+'</td><td>'+x.date+'</td><td>'+x.detail+'</td></tr>').join('')+'</table>'});
 const trn=document.getElementById('trn');
 trn.addEventListener('input',()=>{const q=trn.value.trim().toLowerCase();const ac=document.getElementById('ac');ac.innerHTML='';
   if(q.length<3)return;Object.entries(T).filter(([n,nm])=>n.startsWith(q)||nm.toLowerCase().includes(q)).slice(0,8).forEach(([n,nm])=>{
@@ -113,6 +115,15 @@ PAGE_B_FORM = """<!doctype html><html><head><meta charset="utf-8"><title>MOCK Tr
 <p><label>Train No <input name="trainNo" placeholder="Train Number"></label></p>
 <p><label>Start Date <select name="startDate">%OPTS%</select></label></p><input type="hidden" name="mode" value="%MODE%">
 <p><button type="submit">Submit</button></p></form></body></html>"""
+
+PAGE_PNR = """<!doctype html><html><head><meta charset="utf-8"><title>MOCK PNR Enquiry</title></head><body>
+<h2>MOCK PNR status (test page)</h2><form id="f" method="get" action="/pnr/result">
+<p><label>PNR No. <input name="pnr" id="pnr" placeholder="Enter 10 digit PNR"></label></p>
+<p><img id="captchaImg" src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" width="100" height="30" alt="captcha"> What is 3 + 4? <input name="captcha" id="captcha"></p>
+<p><button type="submit">Get Status</button></p></form>
+<script>if(%AUTO%){setTimeout(()=>{if(document.getElementById('pnr').value.length===10){document.getElementById('captcha').value='7';document.getElementById('f').submit()}},1500);
+ setInterval(()=>{if(document.getElementById('pnr').value.length===10&&!document.getElementById('captcha').value){document.getElementById('captcha').value='7';document.getElementById('f').submit()}},1000)}</script>
+</body></html>"""
 
 PAGE_IRCTC = """<!doctype html><html><head><meta charset="utf-8"><title>MOCK Online Charts</title></head><body>
 <h2>MOCK Reservation Chart / Vacant Berth (test page)</h2>
@@ -154,6 +165,24 @@ def make_server(port=0, now=lambda: datetime.now(IST)):
                 return self.send(200, PAGE_A.replace("%TRAINS%", json.dumps(TRAINS)))
             if u.path == "/ntes-a/api/run":
                 return self.send(200, json.dumps(data.run(q["train"], date.fromisoformat(q["date"]))), "application/json")
+            if u.path == "/ntes-a/api/list":
+                today = now().date()
+                lst = {"cancelled": [("12956", "MOCK EXPRESS 8", "Fully cancelled"), ("14311", "MOCK ALA HAZRAT", "Fully cancelled")],
+                       "diverted": [("12963", "MOCK EXPRESS 9", "Diverted via AWR-DVX1-DEC (skips RE, GGN)")],
+                       "rescheduled": [("12415", "MOCK INTERCITY", "Rescheduled by 01:30 hrs, new departure 18:10")]}[q.get("l", "cancelled")]
+                return self.send(200, json.dumps([{"no": n, "name": nm, "date": today.strftime("%d-%b-%Y"), "detail": d} for n, nm, d in lst]),
+                                 "application/json")
+            if u.path == "/pnr/":
+                return self.send(200, PAGE_PNR.replace("%AUTO%", "1" if q.get("autosolve") else "0"))
+            if u.path == "/pnr/result":
+                if q.get("captcha") != "7":
+                    return self.send(200, "<html><body><p>Invalid captcha. <a href='/pnr/'>Try again</a></p></body></html>")
+                p = q.get("pnr", "")
+                return self.send(200, f"<html><body><h3>PNR {p}</h3><p>12951 - MOCK RAJDHANI EXPRESS</p><p>Date of Journey: {now().strftime('%d-%b-%Y')}"
+                                      " · From: NDLS To: MMCT · Class: 3A</p><p>Chart Status: Chart Not Prepared</p>"
+                                      "<table border=1><tr><th>S.No</th><th>Booking Status</th><th>Current Status</th></tr>"
+                                      "<tr><td>Passenger 1</td><td>WL/12</td><td>RAC/4</td></tr><tr><td>Passenger 2</td><td>CNF/B3/45/LB</td>"
+                                      "<td>CNF/B3/45/LB</td></tr></table></body></html>")
             if u.path == "/ntes-b/":
                 if q.get("mode") == "blocked":
                     return self.send(403, "<html><body><h1>Access Denied</h1><p>You don't have permission to access this resource.</p></body></html>")

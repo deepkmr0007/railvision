@@ -316,3 +316,20 @@ class SchedulerThread(threading.Thread):
 
     def stop(self):
         self._stop.set()
+
+
+class HousekeepingThread(threading.Thread):
+    """Announcements, journey reminders and the daily digest — once a minute."""
+
+    def __init__(self, app, every_s: float = 60.0):
+        super().__init__(daemon=True, name="railvision-housekeeping")
+        self.app, self.every_s = app, every_s
+        self._stop = threading.Event()
+
+    def run(self):
+        while not self._stop.is_set():
+            self.app.housekeeping()
+            self._stop.wait(self.every_s)
+
+    def stop(self):
+        self._stop.set()

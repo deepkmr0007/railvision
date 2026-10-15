@@ -44,7 +44,7 @@ def main(argv=None):
 
     from .api.app import App
     from .api.server import make_handler
-    from .services.tracker import SchedulerThread
+    from .services.tracker import HousekeepingThread, SchedulerThread
 
     app = App()
     tok_f = data / "token.txt"
@@ -57,6 +57,7 @@ def main(argv=None):
         except OSError:
             pass
     SchedulerThread(app.tracker, 30).start()
+    HousekeepingThread(app).start()
     srv = ThreadingHTTPServer((a.host, a.port), make_handler(app))
     srv.daemon_threads = True
     threading.Thread(target=srv.serve_forever, daemon=True).start()
