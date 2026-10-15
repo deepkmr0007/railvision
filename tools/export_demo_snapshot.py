@@ -9,6 +9,7 @@ offline dashboard shows exactly what the server would show. All of it is SYNTHET
 from __future__ import annotations
 
 import json
+import re
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -130,21 +131,52 @@ def personal_replay() -> dict:
 <item><title>Ministry of Ayush opens research portal (mock feed item)</title><link>https://pib.gov.in/mock/2</link></item>
 <item><title>Line block between Alwar and Rewari on Sunday: 90001 to run 40 min late (mock feed item)</title><link>https://pib.gov.in/mock/3</link></item>
 </channel></rss>"""
-    zone1 = '<html><body><a href="/n/1.pdf">Commissioning of new foot over bridge at Bandikui station (mock notice)</a></body></html>'
-    zone2 = zone1.replace("</body>", '<a href="/n/2.pdf">Fog safety drive: trains in the Delhi area may be regulated after 22:00 (mock notice)</a></body>')
+    sys.path.insert(0, str(ROOT / "tests" / "mock_sites"))
+    from pdfmini import make_pdf
+    menu = "".join(f'<li><a href="view_section.jsp?id=0,{i}">{t}</a></li>' for i, t in enumerate(
+        ["About Us", "Tenders and Recruitment", "Passenger Services", "Right to Information", "Contact Us"]))
+
+    def zone_page(n, host):
+        if host.startswith("nr."):
+            rows = [("view_detail.jsp?lang=0&id=0,4,268&dcd=4", "Revised timings of Delhi area suburban services (mock notice)"),
+                    ("view_detail.jsp?lang=0&id=0,4,268&dcd=3", "Fog safety drive: trains in the Delhi area may be regulated after 22:00 (mock notice)")][:max(1, n - 1)]
+            return (f'<html><body><nav><ul class="menu">{menu}</ul></nav><table>' +
+                    "".join(f'<tr><td><a href="/{h}">{t}</a></td></tr>' for h, t in rows) + "</table></body></html>")
+        rows = [("view_detail.jsp?lang=0&id=0,4,268&dcd=1", "Commissioning of new foot over bridge at Bandikui station (mock notice)"),
+                ("uploads/files/notice2.pdf", "Regulation of trains due to line block between Alwar and Rewari (mock notice)"),
+                ("view_detail.jsp?lang=0&id=0,4,268&dcd=5", "Stoppage of 90001 at Gurugram extended on trial basis (mock notice)")][:n]
+        return (f'<html><body><nav><ul class="menu">{menu}</ul></nav><table>' +
+                "".join(f'<tr><td><a href="/{h}">{t}</a></td></tr>' for h, t in rows) + "</table></body></html>")
+    details = {"1": "<html><body><h3>Commissioning of new foot over bridge at Bandikui station (mock notice)</h3><p>A new foot over bridge "
+                    "joins platforms 1-3 at Bandikui (BKI). MOCK TEXT for the RAILVISION replay.</p></body></html>",
+               "4": "<html><body><h3>Revised timings of Delhi area suburban services (mock notice)</h3><p>MOCK TEXT.</p></body></html>",
+               "5": "<html><body><h3>Stoppage of 90001 at Gurugram extended on trial basis (mock notice)</h3><p>Train 90001 will keep its "
+                    "2-minute halt at Gurugram (GGN) for 6 more months. MOCK TEXT for the RAILVISION replay.</p></body></html>",
+               "3": "<html><body><h3>Fog safety drive: trains in the Delhi area may be regulated after 22:00 (mock notice)</h3><p>During fog, "
+                    "trains approaching Delhi Junction (DLI) may be regulated. MOCK TEXT for the RAILVISION replay.</p></body></html>"}
+    pdf = make_pdf(["PRESS RELEASE (MOCK TEXT for the RAILVISION replay)", "Due to a line block between Alwar and Rewari on Sunday,",
+                    "Train No. 90001 will run 40 minutes late and 90003 will be regulated at Bandikui."])
 
     class Net:
         def __init__(self):
-            self.zone = zone1
+            self.zone = 1
 
         def __call__(self, url, headers):
             u = urlsplit(url)
             if u.path == "/robots.txt":
                 return 404, {}, b""
             if u.netloc == "pib.gov.in":
+                if u.path.startswith("/mock/"):          # a release page: just its own title (mock)
+                    titles = dict(re.findall(r"<title>([^<]+)</title><link>https://pib.gov.in(/mock/\d)</link>", rss))
+                    t = {v: k for k, v in titles.items()}.get(u.path, "")
+                    return 200, {"content-type": "text/html"}, f"<html><body><h2>{t}</h2><p>MOCK release text.</p></body></html>".encode()
                 return 200, {}, rss.encode()
-            if u.netloc == "nwr.mock.example":
-                return 200, {}, self.zone.encode()
+            if u.netloc.endswith("indianrailways.gov.in"):           # replay only: MOCK zonal portal, never fetched for real
+                if "view_detail" in u.path:
+                    return 200, {"content-type": "text/html"}, details.get(u.query.split("dcd=")[-1], "").encode()
+                if u.path.endswith(".pdf"):
+                    return 200, {"content-type": "application/pdf"}, pdf
+                return 200, {"content-type": "text/html"}, zone_page(self.zone, u.netloc).encode()
             if u.netloc == "api.x.com":
                 if "/users/by/username/" in u.path:
                     return 200, {}, b'{"data":{"id":"1"}}'
@@ -173,7 +205,7 @@ def personal_replay() -> dict:
             app.store.save_observations(prov.get_train_status(tn, sd))
     news = app.news
     news.store.x("UPDATE news_sources SET name='PIB press releases (mock feed)' WHERE id='pib_en'")
-    src = news.add_source({"kind": "web", "url": "https://nwr.mock.example/notices", "name": "Zonal notices (mock page)"})
+    news.store.x("UPDATE news_sources SET name = name || ' (mock page)' WHERE id LIKE 'zone_%'")
     news.x_token = "mock"
     news.update_source("x_railminindia", {"enabled": True})
     news.store.x("UPDATE news_sources SET name='Ministry of Railways on X (mock API)' WHERE id='x_railminindia'")
@@ -181,8 +213,8 @@ def personal_replay() -> dict:
     while t <= T(9, 15):
         clock.t = t
         if t == T(6, 0):
-            net.zone = zone2
-            news.store.x("UPDATE news_sources SET next_due_at=NULL WHERE id=?", (src["id"],))
+            net.zone = 3
+            news.store.x("UPDATE news_sources SET next_due_at=NULL WHERE id LIKE 'zone_%'")
         if t == T(7, 30):
             news.ingest_external("ntes_cancelled", "NTES Cancelled trains (mock list)",
                                  [{"guid": "c:90002", "title": "90002 DEMO CANCELLED SPECIAL — Cancelled (mock list)",
@@ -290,11 +322,11 @@ def main():
     html = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
     marker = "/*RV_SNAPSHOT*/null"
     assert marker in html
-    out = ROOT / "dist" / "railvision_dashboard_v2_2.html"
+    out = ROOT / "dist" / "railvision_dashboard_v2_3.html"
     out.parent.mkdir(exist_ok=True)
     page = html.replace(marker, data.replace("</", "<\\/"))
     if snap["assist"]:
-        page = page.replace("<title>RAILVISION AI</title>", "<title>RAILVISION AI v2.2</title>", 1)
+        page = page.replace("<title>RAILVISION AI</title>", "<title>RAILVISION AI v2.3</title>", 1)
     out.write_text(page, encoding="utf-8")
     print(f"frames={len(frames)} notifications={len(notifications)} chat={len(transcript)} "
           f"assist={'yes' if snap['assist'] else 'no (playwright missing)'} size={len(data)/1024:.0f} KB -> {out}")

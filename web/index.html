@@ -168,6 +168,9 @@ ul.ev{margin:0;padding-left:18px;font-size:.88rem}
 .feed{display:grid;gap:10px}
 .note{border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:var(--surface);display:grid;gap:6px;min-width:0}
 .chip{max-width:100%;overflow:hidden;text-overflow:ellipsis}
+.note>*{min-width:0;max-width:100%}
+details{min-width:0;max-width:100%}
+.bubble{max-width:min(62ch,100%)!important;box-sizing:border-box}
 .note .row{gap:8px}
 .bubble{white-space:pre-wrap;font-size:.84rem;background:var(--sunk);border-radius:10px 10px 10px 2px;padding:10px 12px;max-width:62ch;overflow-wrap:anywhere}
 .chat{display:grid;gap:10px;max-height:62vh;overflow-y:auto;padding:4px}
@@ -591,15 +594,22 @@ async function vTrips(){
 /* ---------------- Announcements ---------------- */
 const CAT_LABEL={cancellation:"Cancelled",diversion:"Diverted",reschedule:"Rescheduled",short_termination:"Short-terminated",regulation:"Blocks / regulation",weather:"Weather",special_train:"Special trains",extra_coach:"Extra coaches",platform:"Platform",ticketing:"Tickets & fares",safety:"Safety",new_service:"New services",general:"General"};
 const CAT_CHIP=c=>["cancellation","diversion","short_termination","regulation","weather","safety"].includes(c)?"c-bad":["reschedule","platform"].includes(c)?"c-amber":["special_train","extra_coach","new_service"].includes(c)?"c-ok":"c-nv";
-function newsItem(n){return `<article class="note" style="gap:6px"><div class="row" style="gap:6px;justify-content:space-between"><span class="row" style="gap:6px"><span class="chip ${n.source_kind==="x"?"c-acc":"c-nv"}">${esc(n.source_name)}</span>${n.official?'<span class="chip c-ok">Official</span>':""}${n.categories.filter(c=>c!=="general").map(c=>`<span class="chip ${CAT_CHIP(c)}">${esc(CAT_LABEL[c]||c)}</span>`).join("")}</span>
+function newsItem(n){return `<article class="note" style="gap:6px"><div class="row" style="gap:6px;justify-content:space-between"><span class="row" style="gap:6px;min-width:0;flex:1 1 0"><span class="chip ${n.source_kind==="x"?"c-acc":"c-nv"}">${esc(n.source_name)}</span>${n.official?'<span class="chip c-ok">Official</span>':""}${n.categories.filter(c=>c!=="general").map(c=>`<span class="chip ${CAT_CHIP(c)}">${esc(CAT_LABEL[c]||c)}</span>`).join("")}</span>
    <span class="fresh">${esc(n.published_at?n.published_at.slice(0,16).replace("T"," "):hm(n.fetched_at))}</span></div>
-   <div style="font-weight:600;overflow-wrap:anywhere">${esc(n.title)}</div>${n.text&&n.text!==n.title?`<div class="muted" style="font-size:.86rem;overflow-wrap:anywhere">${esc(n.text.slice(0,280))}</div>`:""}
+   <div style="font-weight:600;overflow-wrap:anywhere">${esc(n.title)}</div>${n.text&&n.text!==n.title?`${n.detail_status==="ok"?"":`<div class="muted" style="font-size:.86rem;overflow-wrap:anywhere">${esc(n.text.slice(0,280))}</div>`}`:""}
+   ${n.detail_status==="ok"&&n.text&&n.text!==n.title?`<details><summary class="muted" style="cursor:pointer;font-size:.84rem">Read the notice${/\.pdf(\?|$)/i.test(n.url||"")?" (PDF text)":""}</summary><div class="bubble" style="margin-top:6px;max-height:320px;overflow:auto">${esc(n.text.slice(0,3000))}</div></details>`:""}
+   ${n.detail_status&&n.detail_status!=="ok"&&n.detail_note?`<div class="muted" style="font-size:.78rem">Notice text not read: ${esc(n.detail_note)}</div>`:""}
    <div class="row" style="gap:6px">${n.score>=0.4?`<span class="chip ${n.score>=0.8?"c-bad":"c-amber"}" style="white-space:normal">For you: ${esc(n.why)}</span>`:""}${n.trains.map(t=>`<span class="chip c-nv mono">${esc(t)}</span>`).join("")}${n.stations.map(t=>`<span class="chip c-nv mono">${esc(t)}</span>`).join("")}${n.url?`<a href="${esc(n.url)}" target="_blank" rel="noopener" style="font-size:.84rem">Open source</a>`:""}</div></article>`}
 async function vNews(){
   const f=S.newsF||(S.newsF={rel:true,cat:"",q:""});
   const [items,src]=await Promise.all([API.news(f.rel,f.cat,f.q).catch(()=>[]),API.newsSources().catch(()=>({sources:[]}))]);const live=S.mode==="server";const x=src.x||{};
   const cats=Object.keys(CAT_LABEL).filter(c=>c!=="general");
-  const srcRows=(src.sources||[]).map(s=>`<div class="row" style="justify-content:space-between;border-top:1px solid var(--line);padding:7px 0;gap:8px">
+  const zoneSrc=(src.sources||[]).filter(s=>s.id.startsWith("zone_")),otherSrc=(src.sources||[]).filter(s=>!s.id.startsWith("zone_"));
+  const zoneRows=zoneSrc.sort((a,b)=>(b.enabled-a.enabled)||a.name.localeCompare(b.name)).map(s=>`<div class="row" style="justify-content:space-between;border-top:1px solid var(--line);padding:7px 0;gap:8px">
+    <div style="min-width:0"><div style="font-weight:600;font-size:.9rem">${esc(s.zone)} Railway ${s.verified?'<span class="chip c-ok">address checked</span>':'<span class="chip c-nv">address unconfirmed</span>'}</div>
+     <div class="muted" style="font-size:.78rem">${s.enabled?(s.fetch_via==="assistant"?"read by your browser assistant":"read directly"):"off"}${s.last_status?` · last: ${esc(s.last_status)}`:""}${s.count?` · ${s.count} items`:""}${s.last_status==="robots_disallow"?" · this site asks automated readers to stay away; switch to your browser assistant to read it like a person":""}</div></div>
+    ${live?`<span class="row" style="gap:6px"><button class="btn ghost" data-nact="${s.enabled?"off":"on"}" data-sid="${s.id}">${s.enabled?"On":"Off"}</button>${s.enabled?`<button class="btn ghost" data-nact="via" data-via="${s.fetch_via==="assistant"?"direct":"assistant"}" data-sid="${s.id}" title="How the page is read">${s.fetch_via==="assistant"?"Via assistant":"Direct"}</button>`:""}</span>`:`<span class="chip ${s.enabled?"c-ok":"c-nv"}">${s.enabled?(s.fetch_via==="assistant"?"assistant":"direct"):"off"}</span>`}</div>`).join("");
+  const srcRows=otherSrc.map(s=>`<div class="row" style="justify-content:space-between;border-top:1px solid var(--line);padding:7px 0;gap:8px">
     <div style="min-width:0"><div style="font-weight:600;font-size:.9rem">${esc(s.name)} ${s.official?'<span class="chip c-ok">Official</span>':""}</div><div class="muted" style="font-size:.78rem;overflow-wrap:anywhere">${esc(s.kind==="x"?"@"+s.handle+" · official X API":s.url||"read by your browser assistant")} · every ${s.interval_min} min · ${s.count} items${s.last_status?` · last: ${esc(s.last_status)}${s.last_detail?" ("+esc(s.last_detail)+")":""}`:""}</div></div>
     ${live&&s.kind!=="assist"?`<span class="row" style="gap:6px"><button class="btn ghost" data-nact="${s.enabled?"off":"on"}" data-sid="${s.id}">${s.enabled?"On":"Off"}</button>${s.enabled?`<button class="btn ghost" data-nact="now" data-sid="${s.id}">Fetch</button>`:""}</span>`:`<span class="chip ${s.enabled||s.kind==="assist"?"c-ok":"c-nv"}">${s.kind==="assist"?"via assistant":s.enabled?"on":"off"}</span>`}</div>`).join("");
   return `<section class="view"><div><div class="eyebrow">Official notices, in one place</div><h2>Announcements</h2>
@@ -610,7 +620,8 @@ async function vNews(){
       <select id="nCat" style="border:1px solid var(--line);border-radius:999px;padding:5px 10px;background:var(--surface)"><option value="">All topics</option>${cats.map(c=>`<option value="${c}" ${f.cat===c?"selected":""}>${CAT_LABEL[c]}</option>`).join("")}</select>
       <form id="nSearch" class="row" style="gap:6px"><input id="nQ" value="${esc(f.q)}" placeholder="Search" style="border:1px solid var(--line);border-radius:999px;padding:6px 12px;background:var(--bg);width:11em"></form></div>
      <div class="feed">${items.length?items.map(newsItem).join(""):`<p class="empty">${f.rel?"Nothing that concerns your trains or stations right now. Switch to Everything to see all railway notices.":"No announcements yet."}</p>`}</div></div></div>
-   <div class="col"><div class="panel"><h3>Sources</h3>${srcRows||'<p class="empty">No sources.</p>'}</div>
+   <div class="col"><div class="panel"><h3>Official railway websites</h3><p class="muted" style="font-size:.84rem;margin-top:0">Press releases from each zone's website, including the notice itself (page or PDF). Zones of your trips and stations switch on automatically.</p>${zoneRows}</div>
+    <div class="panel"><h3>Other sources</h3>${srcRows||'<p class="empty">No sources.</p>'}</div>
     <div class="panel"><h3>X (Twitter)</h3><p class="muted" style="font-size:.85rem;margin-top:0">Read only through X's official API with your own key. X charges per post read (about $0.005 each, checked Oct 2026). RAILVISION stops at your daily budget.</p>
      <dl class="kv"><dt>Key</dt><dd>${x.configured?"added":"not added (set X_BEARER_TOKEN)"}</dd><dt>Today</dt><dd>${x.posts??0} of ${x.budget_posts??60} posts · ≈ $${(x.cost_usd??0).toFixed(3)}</dd></dl>
      <div class="bar" style="margin-top:6px"><i style="width:${Math.min(100,Math.round(100*(x.posts||0)/(x.budget_posts||60)))}%"></i></div></div>
@@ -734,6 +745,7 @@ document.addEventListener("click",async e=>{const t=e.target.closest("button,[da
   if(d.copy){try{await navigator.clipboard.writeText(d.copy);t.textContent="Copied"}catch(e){t.textContent=d.copy}return}
   if(d.jact){try{if(d.jact==="pnr"){await API.post(`/api/journeys/${d.jid}/check-pnr`,{});t.textContent="Opening PNR page on your computer…";return}
      if(d.jact==="del")await API.post(`/api/journeys/${d.jid}`,null,true,"DELETE")}catch(err){t.textContent=err.message;return}return render()}
+  if(d.nact==="via"){try{await API.post(`/api/news/sources/${d.sid}`,{fetch_via:d.via},true,"PATCH")}catch(err){}return render()}
   if(d.nact){try{if(d.nact==="now")await API.post(`/api/news/sources/${d.sid}/fetch-now`,{});else await API.post(`/api/news/sources/${d.sid}`,{enabled:d.nact==="on"},true,"PATCH")}catch(err){}return render()}
   if(d.addsrc){try{await API.post("/api/news/sources",{kind:"web",url:d.addsrc,name:d.name});}catch(err){}return render()}
   if(t.id==="dgSend"){try{await API.post("/api/digest/send-now",{});t.textContent="Sent"}catch(err){t.textContent=err.message}return}

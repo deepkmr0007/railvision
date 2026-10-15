@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.3.0 — 15 Oct 2026
+* **Official railway websites**: press-release pages of all 16 zones built in; menus filtered out; each new notice opened
+  and read (HTML or PDF via pypdf) so train numbers inside notices trigger alerts; zones of your trips/stations auto-follow.
+* Pages whose robots.txt refuses automated readers can be read by your browser assistant instead (per source switch).
+* Browser assistant: new `web_page` recipe (pages and PDFs), links captured; detail jobs queued after each list check.
+* Database migration for existing installs; station → zone map; Announcements tab shows the notice text.
+* 146 automated tests.
+
 ## 2.2.0 — 15 Oct 2026
 * **My Journeys**: trips with heads-up, chart-time, leave-home (live delay), wake-up and arrived reminders; auto watch list;
   PNR status via the browser assistant (CAPTCHA typed by you) with change alerts; `.ics` calendar export.
