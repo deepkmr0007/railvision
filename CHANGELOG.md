@@ -15,7 +15,7 @@
   its last checks, so a page it cannot read can be fixed from evidence. PNR checks are never included.
 * Partial routes (only the stations reached so far) are marked open-ended and can never trigger "journey completed".
 * One page driver (`railvision/assist/rv_driver.js`) now serves both the phone app and the desktop assistant.
-* CI uses the runner's Chrome on Ubuntu 24.04. 164 tests.
+* CI uses the runner's Chrome on Ubuntu 24.04. 159 tests.
 
 ## 2.4.0 — 15 Oct 2026
 * **Android app (APK)**, built by GitHub Actions and published as a GitHub Release on every push.

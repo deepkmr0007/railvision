@@ -90,6 +90,7 @@ jobs:
         run: |
           TAG="android-v$V-b$GITHUB_RUN_NUMBER"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          gh release delete probe-latest --yes --cleanup-tag --repo "$GITHUB_REPOSITORY" 2>/dev/null || true   # leftover diagnostic
           cat > notes.md <<EOF
           **RAILVISION AI $V for Android** (built from \`${GITHUB_SHA::7}\` on \`$GITHUB_REF_NAME\`)
 
