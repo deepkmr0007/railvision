@@ -1,0 +1,27 @@
+name: Probe official pages
+on:
+  workflow_dispatch:
+  push:
+    branches: ["claude/**"]
+    paths: ["tools/probe/**", ".github/workflows/probe.yml"]
+permissions:
+  contents: write
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install playwright pypdf && python -m playwright install --with-deps chromium
+      - run: python tools/probe/probe.py 12951 BRC
+        continue-on-error: true
+      - name: Publish the findings
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd probe_out && tar czf ../probe.tgz . && cd ..
+          gh release delete probe-latest --yes --cleanup-tag --repo "$GITHUB_REPOSITORY" || true
+          gh release create probe-latest probe.tgz --prerelease --latest=false --target "$GITHUB_SHA" --title "Diagnostic: official pages (not an app release)" --notes "Page structure dump used to tune the assistant." --repo "$GITHUB_REPOSITORY"
