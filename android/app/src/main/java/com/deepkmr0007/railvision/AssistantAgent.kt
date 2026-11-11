@@ -61,6 +61,9 @@ object AssistantAgent {
     @Volatile var onNeedsYou: ((String?) -> Unit)? = null
 
     @Volatile private var loading = false
+    @Volatile private var currentUrl = ""
+    @Volatile private var loadedAt = 0L
+    private val warmHosts = HashSet<String>()        // sites where the fast lane worked on the page that is still open
     @Volatile private var mainStatus = 0
     @Volatile private var lastDownload: String? = null
     @Volatile private var loopThread: Thread? = null
@@ -111,7 +114,7 @@ object AssistantAgent {
         wv.addJavascriptInterface(Bridge(), "RVBridge")
         wv.webViewClient = object : WebViewClient() {
             override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) { loading = true }
-            override fun onPageFinished(view: WebView, url: String?) { loading = false }
+            override fun onPageFinished(view: WebView, url: String?) { loading = false; currentUrl = url ?: ""; loadedAt = System.currentTimeMillis() }
             override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, errorResponse: WebResourceResponse) {
                 if (request.isForMainFrame) mainStatus = errorResponse.statusCode
             }
@@ -189,7 +192,7 @@ object AssistantAgent {
     }
 
     private fun ensureDriver() {
-        if (evalSync("!!(window.rvDriver && window.rvDriver.v === 3)") != "true") evalSync(driverJs + "\n;true")
+        if (evalSync("!!(window.rvDriver && window.rvDriver.v === 4)") != "true") evalSync(driverJs + "\n;true")
     }
 
     /** One driver step. null = the page changed under us (re-inject and retry). */
@@ -222,6 +225,22 @@ object AssistantAgent {
         loading = true
         onMain { webView!!.loadUrl(url) }
         waitLoaded(45_000)
+    }
+
+    private fun hostOf(url: String): String = try { Uri.parse(url).host ?: "" } catch (e: Exception) { "" }
+
+    /** Same site and path as the page in the WebView, loaded without an error in the last 20 minutes. */
+    private fun pageIsOpen(url: String): Boolean {
+        if (currentUrl.isEmpty() || mainStatus != 0 || loading) return false
+        if (System.currentTimeMillis() - loadedAt > 20 * 60_000L) return false
+        val a = Uri.parse(currentUrl); val b = Uri.parse(url)
+        return a.host == b.host && (a.path ?: "/").trimEnd('/') == (b.path ?: "/").trimEnd('/')
+    }
+
+    /** A quick data request is likely: the page is open and the fast lane worked there last time. */
+    private fun isWarm(recipe: JSONObject, url: String): Boolean {
+        val kind = recipe.optString("kind")
+        return (kind == "status" || kind == "berth") && warmHosts.contains(hostOf(url)) && pageIsOpen(url)
     }
 
     private fun isPdf(url: String) = Regex("\\.pdf(\\?|$)", RegexOption.IGNORE_CASE).containsMatchIn(Uri.parse(url).path ?: url) ||
@@ -278,7 +297,7 @@ object AssistantAgent {
         val cap = r.optJSONObject("capture") ?: JSONObject()
         out.put("status", r.optString("result", "ok"))
         if (r.optString("note").isNotEmpty() && r.optString("result") != "ok") out.put("reason", r.optString("note"))
-        for (k in listOf("text", "tables", "links", "title", "url")) if (cap.has(k)) out.put(k, cap.get(k))
+        for (k in listOf("text", "tables", "links", "title", "url", "json", "html", "fast")) if (cap.has(k) && !cap.isNull(k)) out.put(k, cap.get(k))
     }
 
     private fun refused(out: JSONObject): Boolean {
@@ -292,11 +311,17 @@ object AssistantAgent {
     private fun runSteps(recipe: JSONObject, vars: JSONObject, out: JSONObject, notes: JSONArray) {
         val url = recipe.getString("start_url")
         require(url.startsWith("https://") || url.startsWith("http://")) { "recipe start address is not a web address" }
-        notes.put("open $url")
-        goto(url)
-        if (refused(out)) return
-        Thread.sleep(1000)
-        var phase = "open"
+        val kind = recipe.optString("kind")
+        val canFast = (kind == "status" || kind == "berth") && recipe.optString("mode", "auto") != "recorded" && recipe.optBoolean("fast", true)
+        // The official page is already open from the last check: ask it again instead of reloading everything.
+        var reused = canFast && pageIsOpen(url)
+        if (reused) notes.put("page already open") else {
+            notes.put("open $url")
+            goto(url)
+            if (refused(out)) return
+            Thread.sleep(1000)
+        }
+        var phase = if (canFast) "fast" else "open"
         var after: Any = JSONObject.NULL
         var deadline = System.currentTimeMillis() + 90_000
         var humanDeadline = 0L
@@ -306,14 +331,19 @@ object AssistantAgent {
             val human = phase == "human"
             val j = JSONObject().put("recipe", recipe).put("vars", vars).put("phase", phase).put("handover", true)
                 .put("after", after).put("deadline", (if (human) humanDeadline else deadline).toDouble())
-            val r = step(j)
+            val r = step(j, if (phase == "fast") 120_000 else 30_000)
             if (r == null) {
+                if (phase == "fast") { phase = "open"; reused = false; notes.put("fast lane timed out; using the form"); goto(url); if (refused(out)) return; Thread.sleep(1000); continue }
                 if (++retries > 8) { out.put("status", "recipe_failed").put("reason", "The page kept changing while it was being read."); return }
                 waitLoaded(20_000); Thread.sleep(800); continue
             }
             r.optString("note").takeIf { it.isNotEmpty() }?.let { notes.put(it) }
             when (r.optString("status")) {
                 "continue" -> {
+                    if (phase == "fast") {                       // fast lane not possible here → the normal form, on a fresh page
+                        warmHosts.remove(hostOf(url))
+                        if (reused) { reused = false; notes.put("open $url"); goto(url); if (refused(out)) return; Thread.sleep(1000) }
+                    }
                     phase = r.getString("next")
                     if (r.optBoolean("expectNav")) { Thread.sleep(1200); waitLoaded(20_000) } else Thread.sleep(250)
                 }
@@ -324,8 +354,12 @@ object AssistantAgent {
                     after = r.opt("after") ?: JSONObject.NULL
                     humanDeadline = System.currentTimeMillis() + HUMAN_TIMEOUT_MS
                 }
-                "done" -> { takeCapture(r, out); return }
-                "blocked" -> { out.put("status", r.optString("kind", "blocked")).put("reason", r.optString("reason")); return }
+                "done" -> {
+                    takeCapture(r, out)
+                    if (out.has("fast")) warmHosts.add(hostOf(url)) else warmHosts.remove(hostOf(url))
+                    return
+                }
+                "blocked" -> { warmHosts.remove(hostOf(url)); out.put("status", r.optString("kind", "blocked")).put("reason", r.optString("reason")); return }
                 else -> { out.put("status", "recipe_failed").put("reason", r.optString("reason", "unknown driver answer")); return }
             }
             if (phase == "human") deadline = maxOf(deadline, humanDeadline + 60_000)
@@ -392,6 +426,9 @@ object AssistantAgent {
                 p.minGapS = maxOf(p.floorS, pc.optDouble("min_gap_s", p.minGapS))
                 p.jitterS = pc.optDouble("jitter_s", p.jitterS)
                 p.maxPerDay = minOf(1000, pc.optInt("max_pages_per_day", p.maxPerDay))
+                p.fastGapS = maxOf(p.fastFloorS, pc.optDouble("fast_gap_s", p.fastGapS))
+                p.fastJitterS = pc.optDouble("fast_jitter_s", p.fastJitterS)
+                p.maxFastPerDay = minOf(3000, pc.optInt("max_fast_per_day", p.maxFastPerDay))
             }
             val recipes = work.optJSONObject("recipes") ?: JSONObject()
             val todo = mutableListOf<Pair<JSONObject, String?>>()
@@ -404,6 +441,8 @@ object AssistantAgent {
                 }
             }
             if (todo.isEmpty()) return 0
+            // Checks on the same site run back to back, so its page stays open and each one is a quick request.
+            todo.sortBy { (job, _) -> hostOf(recipes.optJSONObject(job.optString("recipe"))?.optString("start_url") ?: "") }
             heartbeat("online")
             val end = if (budgetMs == Long.MAX_VALUE) Long.MAX_VALUE else System.currentTimeMillis() + budgetMs
             var n = 0
@@ -413,8 +452,9 @@ object AssistantAgent {
                 val startUrl = rc.optString("start_url").replace("{url}", job.optJSONObject("vars")?.optString("url") ?: "")
                 val paused = p.hostPausedMs(startUrl)
                 if (paused > 0) { setStatus("${Uri.parse(startUrl).host} paused for ${paused / 60_000} more min"); continue }
-                if (!p.waitTurn { abortRound || System.currentTimeMillis() > end }) {
-                    if (p.pagesToday() >= p.maxPerDay) setStatus("Daily limit of ${p.maxPerDay} pages reached — resuming tomorrow.")
+                val warm = isWarm(rc, startUrl)
+                if (!p.waitTurn(warm) { abortRound || System.currentTimeMillis() > end }) {
+                    if (p.pagesToday() >= p.maxPerDay || p.fastToday() >= p.maxFastPerDay) setStatus("Daily limit reached — resuming tomorrow.")
                     break
                 }
                 wl.acquire(10 * 60_000L)

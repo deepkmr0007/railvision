@@ -186,6 +186,7 @@ class App:
         r("POST", r"/api/assist/heartbeat", self.as_heartbeat, True)
         r("POST", r"/api/assist/captures", self.as_ingest, True)
         r("GET", r"/api/assist/captures", self.as_captures, True)
+        r("GET", r"/api/assist/diagnostic", self.as_diagnostic, True)
         r("GET", r"/api/assist/captures/(?P<cid>\d+)", self.as_capture, True)
         r("GET", r"/api/assist/captures/(?P<cid>\d+)/screenshot", self.as_shot, True)
         r("GET", r"/api/assist/recipes", self.as_recipes, True)
@@ -616,6 +617,9 @@ class App:
 
     def as_ingest(self, req, uid):
         return _json(201, self._ve(self._as().ingest, uid, req.json()))
+
+    def as_diagnostic(self, req, uid):
+        return _json(200, self._as().diagnostic(uid))
 
     def as_captures(self, req, uid):
         return _json(200, {"items": self._as().captures(uid, req.q1("watch_id"), int(req.q1("limit", "20") or 20))})

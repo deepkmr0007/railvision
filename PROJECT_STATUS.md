@@ -5,6 +5,15 @@
 assist service/API 9 · pacer 1 · browser end-to-end 4). Dashboard v2.1 rendered headless at 1280 px (light) and 390 px (dark)
 across all 10 views: no script errors, no horizontal overflow.
 
+## v2.5 — fast lane (11 Nov 2026)
+
+| Item | Status | Evidence |
+|---|---|---|
+| Vacancy from IRCTC chart data | Parser checked against **real captured responses** (train 18609, 14 Oct 2026, from a public project's fixtures): 82 vacant stretches in S3, 62 usable from RNC. Request/response shapes follow those captures. | `tests/test_fastlane.py`, mock `/online-charts/api/*` |
+| NTES fast request | Request sequence (token, then running-instance request) follows a public open-source client. **The exact wording/layout of the reply is not confirmed**; the parser accepts "Departed from X (CODE) at HH:MM dd-Mon" lines grouped under "Start Date". | `tests/test_phone_driver.py` (mock) |
+| Real sites | **Still not run against the real sites.** They refuse connections from the build servers (NTES timed out, IRCTC answered 403 from a US address on 11 Nov 2026), and no browser in India was reachable. First real evidence must come from a phone: *Share diagnostic file*. | probe run on GitHub Actions |
+| Fallback | If the fast request is not possible, the form-filling path runs as before. | `test_fast_lane_falls_back_to_the_form` |
+
 ## v2.4 — Android app (15 Oct 2026)
 
 **Tests:** 153 passing (adds 7 phone-driver tests: running status on two layouts, berth chart with class, exception

@@ -176,6 +176,111 @@
     return {status: 'blocked', kind: k, reason: reason + ' Not bypassed — open the assistant browser to hand it over to you.'};
   }
 
+
+  // ------------------------------------------------------------------ fast lane
+  // With the official page open, ask the site for the data the same way the page's own buttons do
+  // (same origin, same cookies, read-only). No CAPTCHA, login or block is ever worked around: any
+  // refusal is reported as "blocked", and anything unexpected falls back to filling in the form.
+  const MONS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const pad2 = n => String(n).padStart(2, '0');
+  const isoAdd = (iso, d) => { const t = new Date(iso + 'T00:00:00Z'); t.setUTCDate(t.getUTCDate() + d); return t.toISOString().slice(0, 10); };
+  const isoDiff = (a, b) => Math.round((new Date(a + 'T00:00:00Z') - new Date(b + 'T00:00:00Z')) / 86400000);
+  const dMonY = iso => { const [y, m, d] = iso.split('-'); return `${d}-${MONS[parseInt(m, 10) - 1]}-${y}`; };
+  const istToday = () => new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10);
+  async function call(url, opts, ms) {
+    const ac = new AbortController(); const t = setTimeout(() => ac.abort(), ms || 20000);
+    try {
+      const r = await fetch(url, Object.assign({credentials: 'include', cache: 'no-store', signal: ac.signal}, opts || {}));
+      return {s: r.status, body: await r.text(), ct: r.headers.get('content-type') || ''};
+    } catch (e) { return {s: 0, body: '', err: String(e && e.message || e)}; } finally { clearTimeout(t); }
+  }
+  const refusedBy = r => (r.s === 401 || r.s === 403 || r.s === 429) ? {status: 'blocked', kind: 'blocked', reason: `The site refused the request (HTTP ${r.s}). Not bypassed.`} : null;
+  const BLOCKS = new Set(['P', 'DIV', 'TR', 'LI', 'BR', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'TABLE', 'SECTION', 'ARTICLE', 'UL', 'OL', 'HR', 'HEADER', 'FOOTER', 'FORM', 'LABEL']);
+  function htmlToText(html) {          // text of a fragment that is never put on screen (its scripts do not run)
+    const doc = new DOMParser().parseFromString('<div id="rvroot">' + html + '</div>', 'text/html');
+    doc.querySelectorAll('script,style,noscript').forEach(n => n.remove());
+    const out = [];
+    (function walk(n) {
+      for (const c of n.childNodes) {
+        if (c.nodeType === 3) out.push(c.nodeValue.replace(/\s+/g, ' '));
+        else if (c.nodeType === 1) {
+          const blk = BLOCKS.has(c.tagName), cell = c.tagName === 'TD' || c.tagName === 'TH';
+          if (blk) out.push('\n');
+          walk(c);
+          if (cell) out.push(' | '); if (blk) out.push('\n');
+        }
+      }
+    })(doc.body);
+    const text = out.join('').replace(/[ \t]+\n/g, '\n').replace(/\n[ \t]+/g, '\n').replace(/\n{2,}/g, '\n').trim();
+    const tables = [...doc.querySelectorAll('table')].slice(0, 40).map(tb => [...tb.rows].slice(0, 400).map(r =>
+      [...r.cells].slice(0, 16).map(c => c.textContent.trim().replace(/\s+/g, ' '))));
+    return {text, tables};
+  }
+
+  async function fastBerth(job) {        // IRCTC reservation chart: the JSON the page itself loads
+    const v = job.vars, net = [], stn = String(v.station || '').toUpperCase(), cls = String(v['class'] || '').toUpperCase();
+    if (!v.train || !v.date || !stn) return null;
+    const base = location.origin + '/online-charts/api/';
+    const post = async (name, body) => {
+      const r = await call(base + name, {method: 'POST', headers: {'Accept': 'application/json, text/plain, */*', 'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+      net.push({url: base + name, req: body, status: r.s, body: r.body.slice(0, 600000)});
+      let j = null; try { j = JSON.parse(r.body); } catch (e) { /* not JSON */ }
+      return {r, j};
+    };
+    let jDate = v.date, comp = null;
+    for (let i = 0; i < 2; i++) {        // jDate is the date at the boarding station; the reply names the run's start date
+      const a = await post('trainComposition', {trainNo: String(v.train), jDate, boardingStation: stn});
+      const rf = refusedBy(a.r); if (rf) return rf;
+      if (!a.j || typeof a.j !== 'object') return null;
+      comp = a.j;
+      const d = comp.trainStartDate ? isoDiff(v.date, String(comp.trainStartDate).slice(0, 10)) : 0;
+      if (i === 0 && d > 0 && d <= 4) { jDate = isoAdd(jDate, d); continue; }
+      break;
+    }
+    const coaches = (Array.isArray(comp.cdd) ? comp.cdd : []).filter(c => c && c.coachName && (!cls || String(c.classCode).toUpperCase() === cls)).slice(0, 26);
+    let got = 0;
+    for (const c of coaches) {
+      const b = await post('coachComposition', {trainNo: String(v.train), boardingStation: stn, remoteStation: comp.remote || stn,
+        trainSourceStation: comp.from || stn, jDate, coach: c.coachName, cls: c.classCode});
+      const rf = refusedBy(b.r); if (rf) { if (got) break; return rf; }
+      if (b.j && Array.isArray(b.j.bdd)) got++;
+    }
+    const cap = capture(); cap.json = net; cap.fast = 'irctc-charts';
+    return {status: 'done', result: 'ok', capture: cap, note: `fast lane: chart data for ${coaches.length} coach(es)`};
+  }
+
+  async function fastStatus(job) {       // NTES "Spot your train": token, then the running-instance request
+    const v = job.vars; if (!v.train) return null;
+    const base = location.origin + location.pathname.replace(/[^/]*$/, '');
+    const tk = await call(base + 'GetCSRFToken?t=' + Date.now(), {headers: {'X-Requested-With': 'XMLHttpRequest'}});
+    const rf0 = refusedBy(tk); if (rf0) return rf0;
+    const m = /name=['"]([^'"]+)['"]\s+value=['"]([^'"]*)['"]/.exec(tk.body) || /value=['"]([^'"]*)['"]\s+name=['"]([^'"]+)['"]/.exec(tk.body);
+    if (!m) return null;
+    const name = /name=['"]/.test(m[0].slice(0, 8)) ? m[1] : m[2], value = name === m[1] ? m[2] : m[1];
+    const today = dMonY(istToday());
+    const body = new URLSearchParams({lan: 'en', jDate: today, trainNo: String(v.train)}); body.set(name, value);
+    const url = base + 'tr?opt=TrainRunning&subOpt=FindRunningInstance&refDate=' + today;
+    const r = await call(url, {method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest'}, body: body.toString()});
+    const rf = refusedBy(r); if (rf) return rf;
+    if (r.s !== 200 || r.body.length < 40) return null;
+    if (/captcha/i.test(r.body) && /<input/i.test(r.body) && !/start\s*date/i.test(r.body)) return null;   // let the normal path hand it to the person
+    const t = htmlToText(r.body);
+    if (!/start\s*date|departed|arrived|yet\s+to\s+start|cancel|not\s+(?:yet\s+)?started|no\s+.{0,20}found|invalid/i.test(t.text)) return null;
+    return {status: 'done', result: 'ok', note: 'fast lane: running status request',
+      capture: {text: t.text.slice(0, 200000), tables: t.tables, links: [], title: document.title, url, html: r.body.slice(0, 400000),
+                json: [{url, status: r.s, kind: 'html'}], fast: 'ntes-instances'}};
+  }
+
+  async function fast(job) {
+    const r = job.recipe;
+    if (r.fast === false || r.mode === 'recorded') return null;
+    try {
+      if (r.kind === 'berth' && /\/online-charts\//.test(location.pathname + '/')) return await fastBerth(job);
+      if (r.kind === 'status' && /\/mntes\//.test(location.pathname + '/')) return await fastStatus(job);
+    } catch (e) { /* fall back to the form */ }
+    return null;
+  }
+
   async function stepAuto(job) {
     const r = job.recipe, v = job.vars, ph = job.phase;
     const key = r.kind === 'search' ? 'query' : 'train';
@@ -307,6 +412,11 @@
         if (r.kind !== 'pnr') { const b = blocker(job, 'on the result page'); if (b && b.status === 'blocked') return b; }
         return done('ok');
       }
+      if (ph === 'fast') {            // try the quick data request first; anything unexpected → the normal form
+        const b = blocker(job, 'on opening the site'); if (b) return b;
+        const f = await fast(job);
+        return f || next('open', {note: 'fast lane not available here; using the form'});
+      }
       if (ph.startsWith('step:')) return await stepRecorded(job);
       if (ph === 'open' && r.mode === 'recorded' && (r.steps || []).length) return next('step:0');
       const a = await stepAuto(job);
@@ -315,5 +425,5 @@
       return {status: 'failed', reason: 'driver error: ' + (e && e.message || e)};
     }
   }
-  window.rvDriver = {v: 3, step, detect, capture, dateVariants, render};
+  window.rvDriver = {v: 4, step, fast, detect, capture, dateVariants, render, htmlToText};
 })();

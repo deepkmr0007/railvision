@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import re
 import secrets
 from dataclasses import asdict
@@ -23,7 +24,7 @@ from ..assist.recipes import DEFAULT_RECIPES, IRCTC_CHARTS_URL, NTES_URL, Recipe
 SOURCE_ID = "ntes-official-page (browser assistant)"
 BERTH_SOURCE_ID = "irctc-online-charts (browser assistant)"
 MAX_WATCH = 10
-MIN_INTERVAL, MAX_INTERVAL = 5, 240
+MIN_INTERVAL, MAX_INTERVAL = 2, 240
 LEASE_MIN = 12
 
 SCHEMA = """
@@ -55,12 +56,13 @@ class NoCaptureYet(ProviderError):
 
 def route_to_json(r: Route) -> dict:
     return {"train_number": r.train_number, "train_name": r.train_name, "source_id": r.source_id,
-            "complete": r.complete, "stops": [asdict(s) for s in r.stops]}
+            "complete": r.complete, "open_ended": r.open_ended, "stops": [asdict(s) for s in r.stops]}
 
 
 def route_from_json(d: dict) -> Route:
     r = Route(d["train_number"], d["train_name"], [ScheduledStop(**s) for s in d["stops"]], d["source_id"])
     r.complete = d.get("complete", True)
+    r.open_ended = d.get("open_ended", False)
     return r
 
 
@@ -139,9 +141,15 @@ class AssistService:
         self.store, self.tracker, self.dispatcher, self.clock, self.app_url, self.log = store, tracker, dispatcher, clock, app_url, log
         with store.lock:
             store.db.executescript(SCHEMA)
+            try:                                   # v2.5: what the page answered, kept for the newest captures (diagnostics)
+                store.db.execute("ALTER TABLE assist_captures ADD COLUMN raw TEXT")
+            except Exception:  # noqa: BLE001  (column already there)
+                pass
         self.provider = AssistProvider(self)
         # sent to the agent each round; the agent never goes below its own 15 s floor in real use
-        self.pacing = {"min_gap_s": 20, "jitter_s": 10, "max_pages_per_day": 400, "poll_s": 15}
+        self.pacing = {"min_gap_s": 20, "jitter_s": 10, "max_pages_per_day": 400, "poll_s": 15,
+                       # fast lane = a small data request on a page that is already open (no page reload)
+                       "fast_gap_s": 6, "fast_jitter_s": 3, "max_fast_per_day": 1500}
         self.lists_interval_min = 120          # cancelled / rescheduled / diverted lists, only while you watch something
         self.news = None                       # NewsService (exception lists become announcements)
         self.on_pnr = None                     # callback(user_id, parsed) — updates My Journeys
@@ -410,6 +418,32 @@ class AssistService:
                 "server_time": iso(now)}
 
     # ------------------------------------------------------------------ ingest
+    def diagnostic(self, user_id: str) -> dict:
+        """What the assistant saw on its latest checks, for troubleshooting a page it cannot read.
+        PNR checks are left out. Share it only with someone you trust: it names the trains you watch."""
+        rows = self.store.q("""SELECT id,recipe,kind,vars,status,reason,url,title,text,tables,json_count,started_at,finished_at,parse,
+                               confidence,raw FROM assist_captures WHERE user_id=? AND kind!='pnr' ORDER BY id DESC LIMIT 8""", (user_id,))
+        caps = []
+        for r in rows:
+            d = dict(r)
+            for k in ("vars", "tables", "parse", "raw"):
+                try:
+                    d[k] = json.loads(d[k]) if d[k] else None
+                except ValueError:
+                    pass
+            d["text"] = (d.get("text") or "")[:12_000]
+            d["tables"] = (d.get("tables") or [])[:6]
+            if isinstance(d.get("parse"), dict):
+                d["parse"] = {k: v for k, v in d["parse"].items() if k not in ("route", "obs")}
+                if isinstance(d["parse"].get("vacancy"), dict):
+                    d["parse"]["vacancy"] = {k: (v[:5] if k == "vacant" else v) for k, v in d["parse"]["vacancy"].items()}
+            caps.append(d)
+        from .. import __version__
+        return {"railvision": __version__, "made_at": iso(self.clock()), "platform": os.environ.get("RAILVISION_PLATFORM", "desktop"),
+                "agent": self.agent_state(user_id), "pacing": self.pacing,
+                "recipes": {n: {"start_url": r["start_url"], "mode": r["mode"], "verified": r["verified"]} for n, r in self.recipes().items()},
+                "captures": caps}
+
     def ingest(self, user_id: str, c: dict) -> dict:
         kind = c.get("kind")
         if kind == "page":
@@ -481,6 +515,12 @@ class AssistService:
                             (c.get("url") or "")[:500], (c.get("title") or "")[:200], (c.get("text") or "")[:200_000],
                             self._j((c.get("tables") or [])[:25]), len(c.get("json") or []), shot, c.get("started_at"),
                             c.get("finished_at") or iso(self.clock()), self._j(parse), confidence, iso(self.clock()))).lastrowid
+        if kind != "pnr":
+            raw = {"fast": c.get("fast"), "steps": (c.get("steps") or [])[:60], "html": (c.get("html") or "")[:150_000],
+                   "json": [{"url": str(r.get("url"))[:300], "status": r.get("status"), "req": r.get("req"), "body": str(r.get("body") or "")[:40_000]}
+                            for r in (c.get("json") or [])[:12] if isinstance(r, dict)]}
+            self.store.x("UPDATE assist_captures SET raw=? WHERE id=?", (self._j(raw), cid))
+            self.store.x("UPDATE assist_captures SET raw=NULL WHERE user_id=? AND raw IS NOT NULL AND id<=?", (user_id, cid - 12))
         self._prune(wid)
         if status == "ok" and (confidence or 0) >= 0.6:      # a recorded recipe that produced a confident read
             self.store.x("UPDATE assist_recipes SET verified=1 WHERE name=?", (c.get("recipe"),))

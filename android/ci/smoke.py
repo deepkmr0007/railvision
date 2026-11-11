@@ -64,8 +64,9 @@ def finish(ok: bool):
     # one-line summaries as workflow annotations (readable through the GitHub API)
     print(f"::notice title=Engine::started in {R.get('engine_up_s')} s")
     for c in R.get("captures", []):
-        print(f"::notice title=In-app assistant {c['kind']}::{c['status']} · confidence {c['confidence']} · "
+        print(f"::notice title=In-app assistant {c['kind']} {c.get('train')}::{c['status']} · confidence {c['confidence']} · "
               f"{(c.get('headline') or c.get('reason') or '')[:150]} · vacant {c.get('vacant')}")
+    print(f"::notice title=Checks::{len(R.get('captures', []))} checks in {R.get('jobs_s')} s · fast lane used in {sum(1 for d in R.get('diagnostic', []) if d.get('fast'))}")
     for n in R.get("notifications", [])[:6]:
         print(f"::notice title=Android notification::{n[:180]}")
     crash = [ln for ln in (OUT / "logcat_app.txt").read_text().splitlines() if "FATAL" in ln or "AndroidRuntime: E" in ln][:3]
@@ -108,7 +109,7 @@ def main():
         finish(False)
 
     recipes = api("GET", "/api/assist/recipes", token=tok)
-    for name, path in (("ntes_status", "/ntes-a/"), ("irctc_berth", "/irctc/")):
+    for name, path in (("ntes_status", "/mntes/"), ("irctc_berth", "/online-charts/")):
         rc = dict(recipes[name])
         rc["start_url"] = "http://127.0.0.1:9000" + path
         api("PUT", f"/api/assist/recipes/{name}", rc, token=tok)
@@ -116,7 +117,9 @@ def main():
     today = datetime.now(IST).date().isoformat()
     api("POST", "/api/assist/jobs", {"kind": "status", "vars": {"train": "12951", "date": today}}, token=tok)
     api("POST", "/api/assist/jobs", {"kind": "berth", "vars": {"train": "12951", "date": today, "station": "AWR", "class": "3A"}}, token=tok)
-    log("queued: running status 12951 + berths 3A from AWR")
+    for tn in ("12907", "12914", "12921"):          # more trains on the same site: these should go through the already-open page
+        api("POST", "/api/assist/jobs", {"kind": "status", "vars": {"train": tn, "date": today}}, token=tok)
+    log("queued: running status for 4 trains + berths 3A from AWR")
 
     adb("shell", "am", "start", "-n", f"{PKG}/.MainActivity", "--ez", "open_assistant", "true")
     time.sleep(12)
@@ -132,18 +135,25 @@ def main():
     R["jobs_s"] = round(time.time() - t1, 1)
     caps = api("GET", "/api/assist/captures?limit=10", token=tok)["items"]
     R["captures"] = [{"kind": c.get("kind"), "status": c.get("status"), "confidence": c.get("confidence"),
-                      "headline": (c.get("parse") or {}).get("headline"), "reason": c.get("reason"),
+                      "headline": (c.get("parse") or {}).get("headline"), "reason": c.get("reason"), "train": (c.get("vars") or {}).get("train"),
+                      "took_s": c.get("took_s"), "method": ((c.get("parse") or {}).get("vacancy") or {}).get("method") or (c.get("parse") or {}).get("parser"),
                       "stations": (c.get("parse") or {}).get("stations_found"),
                       "vacant": ((c.get("parse") or {}).get("vacancy") or {}).get("total_vacant")} for c in caps]
     R["agent"] = api("GET", "/api/assist/status", token=tok).get("agent")
     R["mock_hits"] = dict(getattr(mock, "stats", {}) or {})
+    R["mock_fast_calls"] = list(mock.fast["calls"])
+    diag = api("GET", "/api/assist/diagnostic", token=tok)
+    R["diagnostic"] = [{"kind": c["kind"], "fast": (c.get("raw") or {}).get("fast"), "steps": (c.get("raw") or {}).get("steps")} for c in diag["captures"]]
     shot("3_after_checks")
     adb("shell", "input", "keyevent", "KEYCODE_BACK")
     time.sleep(2)
     adb("shell", "am", "start", "-n", f"{PKG}/.MainActivity")
     time.sleep(3)
     shot("4_dashboard_after")
-    ok = any(c["kind"] == "status" and c["status"] == "ok" and (c["confidence"] or 0) >= 0.6 for c in R["captures"])
+    good = [c for c in R["captures"] if c["kind"] == "status" and c["status"] == "ok" and (c["confidence"] or 0) >= 0.6]
+    berth = [c for c in R["captures"] if c["kind"] == "berth" and c["status"] == "ok" and c["method"] == "irctc-json"]
+    fast = [d for d in R["diagnostic"] if d["fast"]]
+    ok = len(good) >= 4 and bool(berth) and len(fast) >= 5
     finish(ok)
 
 

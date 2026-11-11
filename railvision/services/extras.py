@@ -20,7 +20,7 @@ HELP_LINKS = [{"name": "Rail Madad (complaints)", "url": "https://railmadad.indi
 
 def punctuality(store, train: str, station: str | None = None, days: int = 30, include_demo: bool = False) -> dict:
     """Delay history from the observations RAILVISION has stored (latest report per run and station)."""
-    since = (now_ist().date() - timedelta(days=days)).isoformat()
+    since = (store.clock().date() - timedelta(days=days)).isoformat()     # the app clock, like every other time in the store
     rows = store.q("""SELECT service_date, station_code, kind, delay_min, source_time FROM observations
                       WHERE train_number=? AND service_date>=? AND delay_min IS NOT NULL AND kind IN ('ARRIVED','DEPARTED','PASSED')
                       AND is_demo=?""" + (" AND station_code=?" if station else ""),

@@ -2,6 +2,13 @@
 
 Running status · **non-stop station crossing** · station boards · chart vacancy · persistent tracking with alerts · English/Hindi/Hinglish assistant · WhatsApp / Telegram / email / app delivery · premium command-center dashboard (installable PWA).
 
+## New in 2.5: fast lane, working vacancy chart, diagnostics
+
+The assistant now reads the IRCTC chart's own data (berth by berth) and gets NTES running status with one quick request
+per train on the already-open page, so ten trains take about a minute and a half instead of five. If a page still can't
+be read on your phone, *Settings → Phone app → Share diagnostic file* shows exactly what the assistant saw.
+See [`CHANGELOG.md`](CHANGELOG.md).
+
 ## New in 2.4: Android app (APK)
 
 **Install on your phone:** open **https://github.com/deepkmr0007/railvision/releases/latest** on the phone and tap

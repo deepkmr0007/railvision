@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.5.0 — 11 Nov 2026
+* **Fast lane.** With the official page open in the assistant's browser, the app now asks the site for the data the same
+  way the page's own buttons do (same origin, same cookies, read-only), instead of typing into the form every time.
+  * **Vacant berths (IRCTC charts):** reads the chart's own data — every coach of the class, every berth, each stretch of
+    the journey — and counts a berth as vacant only where the chart says so. The old reader expected a table that the
+    real page never shows. "Usable from your station" is counted only when the chart proves the stretch covers it.
+  * **Running status (NTES):** one quick request per train; the answer lists every current run, and only the run with
+    your start date is used. If that run is not listed, nothing is taken from another day.
+  * Falls back to the form automatically; a refusal (HTTP 401/403/429), CAPTCHA or login is still reported, never bypassed.
+* **Faster rounds.** Checks on the same site run back to back on the page that is already open: about 6–9 s apart instead
+  of 20–30 s (first load of a site still waits 20 s). Watch interval can now be 2 or 3 minutes; default is 5.
+* **Share diagnostic file** (Settings → Phone app, or *Download diagnostic file* on desktop): what the assistant saw on
+  its last checks, so a page it cannot read can be fixed from evidence. PNR checks are never included.
+* Partial routes (only the stations reached so far) are marked open-ended and can never trigger "journey completed".
+* One page driver (`railvision/assist/rv_driver.js`) now serves both the phone app and the desktop assistant.
+* CI uses the runner's Chrome on Ubuntu 24.04. 164 tests.
+
 ## 2.4.0 — 15 Oct 2026
 * **Android app (APK)**, built by GitHub Actions and published as a GitHub Release on every push.
   * The Python engine runs inside the app (Chaquopy, Python 3.12), on 127.0.0.1 only; data stays in app storage.

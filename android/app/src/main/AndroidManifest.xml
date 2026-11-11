@@ -40,6 +40,16 @@
                 android:value="Keeps checking the train running status, berths and railway notices the user chose, one page at a time." />
         </service>
 
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
         <receiver
             android:name=".BootReceiver"
             android:exported="false">

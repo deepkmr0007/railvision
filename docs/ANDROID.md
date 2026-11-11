@@ -47,6 +47,12 @@ The PNR page always has a CAPTCHA, so **Check PNR** always asks you.
   apps" lists; add RAILVISION there if checks stop when the screen is off.
 * **Open assistant browser** — watch what it is doing.
 
+## If a check does not work
+
+*Settings → Phone app → Share diagnostic file* makes a small file with what the assistant saw on its last 8 checks
+(page text, the site's answers, the steps it took) and opens Android's share sheet. Send that file to whoever is helping
+you fix it. It names the trains you watch; PNR checks are never included.
+
 ## Privacy
 
 Everything stays on the phone, in the app's private storage: the database, your token, your trips.

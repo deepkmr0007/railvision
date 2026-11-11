@@ -274,7 +274,7 @@ class TrackingEngine:
             sent += self._emit(t, "STALE", f"{tid}:stale:{now:%Y%m%d%H}", status, cd, state="Data temporarily unavailable")
 
         # Completion: reached end station, train completed, or service date long past
-        end = t.get("end_station") or route.stops[-1].code
+        end = t.get("end_station") or (None if route.open_ended else route.stops[-1].code)
         end_rec = next((s for s in status["stops"] if s["code"] == end), None)
         reached = bool(end_rec and end_rec["status"] in ("PASSED", "AT_STATION") and end_rec.get("actual"))
         expired = now.date() > sd + timedelta(days=3)

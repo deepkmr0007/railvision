@@ -21,7 +21,7 @@ from datetime import date, datetime, timedelta
 from ..core.models import LiveObservation, ObsKind, Route, ScheduledStop
 from ..core.timeutil import IST, parse_hhmm
 
-PARSER_VERSION = "ntes-parser/1.0"
+PARSER_VERSION = "ntes-parser/1.1"
 TIME = r"(?:[01]?\d|2[0-3]):[0-5]\d"
 NOT_CODES = {"PF", "AM", "PM", "IST", "HRS", "HR", "KM", "KMS", "DAY", "SCH", "ACT", "ETA", "ETD", "STA", "STD", "ATA",
              "ATD", "RT", "NA", "SRC", "DSTN", "EXP", "ARR", "DEP", "MIN", "MINS", "NO", "PNR", "NTES", "IRCTC", "CRIS", "OK"}
@@ -34,7 +34,7 @@ POS_RE = re.compile(r"(?P<verb>departed\s+from|departed|left|crossed|passed|arri
                     r"(?:at|on|@)?\s*(?P<time>" + TIME + r")?", re.I)
 KM_RE = re.compile(r"(?P<km>\d+(?:\.\d+)?)\s*kms?\.?\s*(?:after|from|ahead\s+of|beyond|past)\s+"
                    r"(?P<name>[A-Z][A-Za-z .'/-]{1,45}?)\s*[\(\[]\s*(?P<code>[A-Z]{1,5})\s*[\)\]]", re.I)
-UPDATED_RE = re.compile(r"last\s*updated\s*(?:on|at)?\s*[:\-]?\s*(?P<d>\d{1,2}[-/ ][A-Za-z]{3}[-/ ]\d{2,4}|\d{1,2}[-/]\d{1,2}[-/]\d{2,4})?"
+UPDATED_RE = re.compile(r"last\s*updat(?:ed|es?)\s*(?:on|at)?\s*[:\-]?\s*(?P<d>\d{1,2}[-/ ][A-Za-z]{3}[-/ ]\d{2,4}|\d{1,2}[-/]\d{1,2}[-/]\d{2,4})?"
                         r"\s*,?\s*(?:at\s*)?(?P<t>" + TIME + r")", re.I)
 CANCEL_RE = re.compile(r"(train\s+(?:is|has\s+been|stands)\s+(?:fully\s+)?cancel+ed|fully\s+cancel+ed|"
                        r"cancel+ed\s+for\s+(?:the\s+)?(?:journey|date|day)|this\s+train\s+is\s+cancel+ed)", re.I)
@@ -64,6 +64,8 @@ class ParsedStation:
     reached: bool | None = None
     departed: bool | None = None
     halt: bool = True
+    act_arr_date: date | None = None   # set when the page gives the date with the actual time (event lines)
+    act_dep_date: date | None = None
 
 
 @dataclass
@@ -362,18 +364,142 @@ def parse_json(responses: list[dict]) -> list[ParsedStation]:
 
 
 # ------------------------------------------------------------------ main entry
-def parse_status(capture: dict, expected_train: str | None = None) -> ParsedStatus:
+# ------------------------------------------------------------------ several runs on one page (NTES lists each start date)
+START_DATE_RE = re.compile(r"start\s*(?:ed\s*on|date)\s*[:\-]?\s*(\d{1,2}[-/ ][A-Za-z]{3}[-/ ,]+\d{2,4})", re.I)
+EVENT_RE = re.compile(r"\b(?P<verb>departed|arrived|reached|left)\b\s*(?:from|at)?\s*(?P<name>[A-Z][A-Za-z0-9 .,'/&-]{1,45}?)\s*"
+                      r"[\(\[]\s*(?P<code>[A-Z]{1,5})\s*[\)\]]", re.I)
+DAYMON_RE = re.compile(r"\b(\d{1,2})[-/ ]([A-Za-z]{3})(?:[-/ ,]+(\d{4}))?\b")
+MONTHS = {m: i + 1 for i, m in enumerate(["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"])}
+
+
+def _parse_dmy(sv: str) -> date | None:
+    m = re.match(r"\s*(\d{1,2})[-/ ]([A-Za-z]{3})[-/ ,]+(\d{2,4})", sv)
+    if not m or m.group(2).lower() not in MONTHS:
+        return None
+    y = int(m.group(3))
+    try:
+        return date(y + 2000 if y < 100 else y, MONTHS[m.group(2).lower()], int(m.group(1)))
+    except ValueError:
+        return None
+
+
+def pick_instance(capture: dict) -> tuple[str, list | None, list[str], bool]:
+    """(text of the wanted run, tables or None for 'use the capture's', issues, wanted_missing).
+
+    NTES answers a train number with every current run (one block per start date). Only the block for
+    the run we were asked about is used; if that run is not on the page, nothing is taken from the others."""
     text = capture.get("text") or ""
+    marks = [(m.start(), _parse_dmy(m.group(1))) for m in START_DATE_RE.finditer(text)]
+    marks = [(pos, d) for pos, d in marks if d]
+    want = None
+    try:
+        want = date.fromisoformat(str((capture.get("vars") or {}).get("date")))
+    except ValueError:
+        pass
+    if not marks or not want:
+        return text, None, [], False
+    if len({d for _, d in marks}) == 1:
+        low = text.lower()
+        if marks[0][1] == want or any(want.strftime(f).lower() in low for f in ("%d-%b-%Y", "%d %b %Y", "%d-%m-%Y", "%d/%m/%Y", "%Y-%m-%d")):
+            return text, None, [], False        # one run on the page, and it is (or names) the one asked for
+        return "", [], [f"The page shows the run that started {marks[0][1]:%d-%b-%Y}, not {want:%d-%b-%Y}."], True
+    starts = [text.rfind("\n", 0, pos) + 1 for pos, _ in marks]
+    for i, (_, d) in enumerate(marks):
+        if d == want:
+            block = text[starts[i]: starts[i + 1] if i + 1 < len(starts) else len(text)]
+            head = text[:starts[0]]
+            tables, cur = [], []
+            for ln in block.splitlines():           # table rows were flattened to "a | b | c" lines by the reader
+                if " | " in ln + " ":
+                    cur.append([c.strip() for c in ln.strip().rstrip("|").split(" | ")])
+                elif cur:
+                    tables.append(cur)
+                    cur = []
+            if cur:
+                tables.append(cur)
+            return head[-600:] + "\n" + block, [t for t in tables if len(t) >= 2], [], False
+    seen = ", ".join(sorted({f"{d:%d-%b}" for _, d in marks}))
+    return "", [], [f"The page lists runs starting {seen}; the run of {want:%d-%b-%Y} is not there (not started yet, or finished)."], True
+
+
+def parse_event_lines(text: str, start: date | None, ref: datetime | None) -> list[ParsedStation]:
+    """'Departed from ALWAR (AWR) at 08:21 11-Nov Delay 00:05' style lines → one entry per station, in time order."""
+    by: dict[str, ParsedStation] = {}
+    when: dict[str, datetime] = {}
+    year = (ref or datetime.now(IST)).year
+    for ln in text.splitlines():
+        m = EVENT_RE.search(ln)
+        if not m or NOT_REACHED.search(ln):
+            continue
+        rest = ln[m.end():]
+        tm = re.search(TIME, rest) or re.search(TIME, ln)
+        if not tm:
+            continue
+        code = m.group("code").upper()
+        if code in NOT_CODES:
+            continue
+        d = None
+        dm = DAYMON_RE.search(rest)
+        if dm and dm.group(2).lower() in MONTHS:
+            try:
+                d = date(int(dm.group(3) or year), MONTHS[dm.group(2).lower()], int(dm.group(1)))
+                if ref and not dm.group(3) and d > ref.date() + timedelta(days=30):
+                    d = d.replace(year=year - 1)
+            except ValueError:
+                d = None
+        ps = by.setdefault(code, ParsedStation(code=code, name=m.group("name").strip(" -,")))
+        arrived = m.group("verb").lower() in ("arrived", "reached")
+        if arrived:
+            ps.act_arr, ps.act_arr_date = tm.group(0), d
+        else:
+            ps.act_dep, ps.act_dep_date, ps.departed = tm.group(0), d, True
+        ps.reached = True
+        dl = delay_minutes(rest)
+        if dl is not None:
+            ps.delay_min = dl
+        elif ONTIME_RE.search(rest):
+            ps.delay_min = 0
+        base = d or (ref.date() if ref else start) or date.today()
+        when[code] = max(when.get(code, datetime.min.replace(tzinfo=IST)), datetime.combine(base, parse_hhmm(tm.group(0)), tzinfo=IST))
+    return sorted(by.values(), key=lambda x: when[x.code])
+
+
+
+def parse_status(capture: dict, expected_train: str | None = None) -> ParsedStatus:
+    full_text = capture.get("text") or ""
     issues: list[str] = []
     p = ParsedStatus(method=PARSER_VERSION)
-    st_json = parse_json(capture.get("json") or [])
-    st_tab = parse_tables(capture.get("tables") or [], issues)
+    text, inst_tables, inst_issues, missing = pick_instance(capture)
+    if missing:                                    # the asked-for run is not on the page: take nothing from other days
+        p.issues, p.confidence, p.headline = inst_issues, 0.3, inst_issues[0]
+        if expected_train and expected_train in full_text:
+            p.train_number = expected_train
+        return p
+    st_json = parse_json([r for r in capture.get("json") or [] if r.get("body")])
+    st_tab = parse_tables(inst_tables if inst_tables is not None else (capture.get("tables") or []), issues)
     st_txt = parse_text_blocks(text, issues) if not st_tab and not st_json else []
+    try:
+        want = date.fromisoformat(str((capture.get("vars") or {}).get("date")))
+    except ValueError:
+        want = None
+    try:
+        ref = datetime.fromisoformat(capture.get("finished_at")).astimezone(IST) if capture.get("finished_at") else None
+    except ValueError:
+        ref = None
+    st_ev = parse_event_lines(text, want, ref)
     sources = [("json", st_json), ("table", st_tab), ("text", st_txt)]
     used, stations = max(sources, key=lambda s: (len(s[1]), s[0] != "text"))
+    usable = [x for x in stations if x.sch_arr or x.sch_dep or x.act_arr or x.act_dep]
+    if st_ev and len(st_ev) >= len(usable):         # the page reports events ("Departed from X (CODE) at …"), not a timetable
+        used, stations = "events", st_ev
     p.stations = stations
     if used == "text":
         issues.append("Parsed from free text (no table found) — check the screenshot.")
+    if used == "events":
+        last = stations[-1]
+        p.position = {"kind": "DEPARTED" if last.departed else "ARRIVED", "code": last.code, "time": last.act_dep if last.departed else last.act_arr}
+        p.headline = f"{'Departed from' if last.departed else 'Arrived at'} {last.name.title()} ({last.code}) at {p.position['time']}" + \
+            (f", {last.delay_min} min late" if last.delay_min else ", on time" if last.delay_min == 0 else "")
 
     for m in TRAIN_HDR.finditer(text[:3000]):
         if not expected_train or m.group(1) == expected_train:
@@ -384,6 +510,8 @@ def parse_status(capture: dict, expected_train: str | None = None) -> ParsedStat
     if expected_train and p.train_number not in (None, expected_train):
         issues.append(f"Page shows train {p.train_number}, expected {expected_train}.")
 
+    if expected_train and p.train_number is None and expected_train in full_text:
+        p.train_number = expected_train
     u = UPDATED_RE.search(text)
     if u:
         p.last_updated = _resolve_dt(u.group("d"), u.group("t"), capture)
@@ -391,7 +519,9 @@ def parse_status(capture: dict, expected_train: str | None = None) -> ParsedStat
     p.diverted = bool(DIVERT_RE.search(text))
     p.not_started = bool(NOT_STARTED_RE.search(text))
     m = KM_RE.search(text)
-    if m:
+    if used == "events":
+        pass
+    elif m:
         p.position = {"kind": "POSITION", "code": m.group("code").upper(), "km_after": float(m.group("km"))}
     else:
         for m in POS_RE.finditer(text):
@@ -405,7 +535,7 @@ def parse_status(capture: dict, expected_train: str | None = None) -> ParsedStat
             break
 
     conf = 0.3
-    if used in ("table", "json"):
+    if used in ("table", "json", "events"):
         conf += 0.3
     elif stations:
         conf += 0.15
@@ -470,6 +600,18 @@ def to_route_and_obs(p: ParsedStatus, train: str, start_date: date, capture: dic
     # --- schedule & day-of-run
     stops: list[ScheduledStop] = []
     day, prev = 1, None
+    events_only = all(not (s.sch_arr or s.sch_dep) for s in p.stations)
+    if events_only:                 # the page lists what has happened so far: scheduled = actual − delay
+        def back(t: str | None, d: date | None, delay: int | None):
+            if not t:
+                return None, None
+            dt = datetime.combine(d or start_date, parse_hhmm(t), tzinfo=IST) - timedelta(minutes=delay or 0)
+            return dt.strftime("%H:%M"), max(1, (dt.date() - start_date).days + 1)
+        for s in p.stations:
+            s.sch_arr, da = back(s.act_arr, s.act_arr_date, s.delay_min)
+            s.sch_dep, dd = back(s.act_dep, s.act_dep_date, s.delay_min)
+            s.day = da or dd
+        issues.append("The page lists only the stations reached so far; later stops and the timetable are not on it.")
     for i, s in enumerate(p.stations):
         first = s.sch_arr or s.sch_dep
         if s.day:
@@ -479,7 +621,7 @@ def to_route_and_obs(p: ParsedStatus, train: str, start_date: date, capture: dic
             day += 1
         halt = s.halt and not (s.sch_arr and s.sch_dep and s.sch_arr == s.sch_dep and i not in (0, len(p.stations) - 1))
         stops.append(ScheduledStop(seq=i, code=s.code, name=s.name.title(), km=0.0, day=day,
-                                   arr=None if i == 0 else s.sch_arr, dep=None if i == len(p.stations) - 1 else s.sch_dep,
+                                   arr=None if i == 0 else s.sch_arr, dep=None if (i == len(p.stations) - 1 and not events_only) else s.sch_dep,
                                    halt=halt if 0 < i < len(p.stations) - 1 else True, platform=s.platform))
         prev = s.sch_dep or s.sch_arr or prev
     have_km = sum(1 for s in p.stations if s.km is not None) >= len(p.stations) - 1
@@ -494,6 +636,7 @@ def to_route_and_obs(p: ParsedStatus, train: str, start_date: date, capture: dic
         issues.append("Distances not on the page; using timetable minutes as distance proxy.")
     route = Route(train_number=train, train_name=p.train_name or train, stops=stops, source_id=source_id)
     route.complete = any(not s.halt for s in stops)      # only halts listed => intermediate stations unknown
+    route.open_ended = events_only
 
     obs: list[LiveObservation] = []
     common = dict(train_number=train, service_date=start_date, source_id=source_id, source_time=src_t, retrieved_at=cap_t)
@@ -522,15 +665,15 @@ def to_route_and_obs(p: ParsedStatus, train: str, start_date: date, capture: dic
             departed = i < pos_i or (i == pos_i and p.position["kind"] == "DEPARTED")
         if not reached or s.expected_only:
             continue
-        a = actual_dt(s.act_arr, st.arr_dt(start_date))
-        d = actual_dt(s.act_dep, st.dep_dt(start_date))
+        a = datetime.combine(s.act_arr_date, parse_hhmm(s.act_arr), tzinfo=IST) if s.act_arr and s.act_arr_date else actual_dt(s.act_arr, st.arr_dt(start_date))
+        d = datetime.combine(s.act_dep_date, parse_hhmm(s.act_dep), tzinfo=IST) if s.act_dep and s.act_dep_date else actual_dt(s.act_dep, st.dep_dt(start_date))
         pl = {"platform": s.platform} if s.platform else {}
         if not st.halt and (d or a):
             obs.append(LiveObservation(kind=ObsKind.PASSED, station_code=s.code, event_time=d or a, delay_min=s.delay_min, payload=pl, **common))
             continue
         if a and i > 0:
             obs.append(LiveObservation(kind=ObsKind.ARRIVED, station_code=s.code, event_time=a, delay_min=s.delay_min, payload=pl, **common))
-        if d and (departed or departed is None and i < (pos_i if pos_i is not None else -1)) and i < len(stops) - 1:
+        if d and (departed or departed is None and i < (pos_i if pos_i is not None else -1)) and (i < len(stops) - 1 or events_only):
             obs.append(LiveObservation(kind=ObsKind.DEPARTED, station_code=s.code, event_time=d, delay_min=s.delay_min, payload=pl, **common))
     if p.position and p.position["kind"] == "POSITION" and p.position["code"] in codes:
         obs.append(LiveObservation(kind=ObsKind.POSITION, station_code=p.position["code"], event_time=src_t,

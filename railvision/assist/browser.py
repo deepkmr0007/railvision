@@ -10,6 +10,7 @@ Rules built into the code, not left to configuration:
 from __future__ import annotations
 
 import base64
+from pathlib import Path
 import re
 import time
 from datetime import date, datetime
@@ -67,6 +68,11 @@ SCAN_JS = """() => {
 SUBMIT_WORDS = ["get train chart", "get chart", "get status", "check status", "show status", "get", "submit", "search",
                 "show", "find", "check", "go", "proceed", "view"]
 
+
+try:
+    DRIVER_JS = (Path(__file__).with_name("rv_driver.js")).read_text(encoding="utf-8")
+except OSError:
+    DRIVER_JS = ""
 
 class Blocked(Exception):
     def __init__(self, status: str, reason: str):
@@ -425,6 +431,35 @@ class Runner:
         out["finished_at"] = iso(now_ist())
         return out
 
+    def _fast(self, recipe: Recipe, vars_: dict) -> dict | None:
+        """The quick data request shared with the phone app (rv_driver.js). None = not available here, use the form."""
+        if recipe.kind not in ("status", "berth") or not DRIVER_JS:
+            return None
+        try:
+            self.page.add_script_tag(content=DRIVER_JS)
+            r = self.page.evaluate("job => rvDriver.fast(job)", {"recipe": recipe.to_dict(), "vars": {k: str(v) for k, v in vars_.items()}})
+        except Exception:
+            return None
+        if not r:
+            return None
+        if r.get("status") == "blocked":
+            raise Blocked(r.get("kind") or "blocked", r.get("reason") or "The site refused the request.")
+        if r.get("status") != "done":
+            return None
+        self._note(r.get("note") or "fast lane")
+        return r["capture"]
+
+    def _finish(self, recipe: Recipe, vars_: dict, started, cap: dict) -> dict:
+        shot = None
+        try:
+            shot = base64.b64encode(self.page.screenshot(full_page=False, type="jpeg", quality=55)).decode()
+        except Exception:
+            pass
+        return {"recipe": recipe.name, "kind": recipe.kind, "vars": {k: str(v) for k, v in vars_.items()}, "status": "ok", "reason": "",
+                "text": cap.get("text", ""), "tables": cap.get("tables", []), "title": cap.get("title", ""), "url": cap.get("url", ""),
+                "json": cap.get("json", []), "html": cap.get("html"), "fast": cap.get("fast"), "screenshot_b64": shot, "steps": self.steps,
+                "started_at": iso(started), "finished_at": iso(now_ist())}
+
     def run(self, recipe: Recipe, vars_: dict) -> dict:
         if recipe.kind == "page":
             return self.run_page(recipe, vars_)
@@ -436,6 +471,9 @@ class Runner:
             time.sleep(1.0)
             if recipe.kind != "pnr":                 # the PNR form always carries a CAPTCHA for YOU to type
                 self.check_blockers("on opening the site")
+            fast = self._fast(recipe, vars_)
+            if fast is not None:
+                return self._finish(recipe, vars_, started, fast)
             if recipe.mode == "recorded" and recipe.steps:
                 self.run_recorded(recipe, vars_)
             else:

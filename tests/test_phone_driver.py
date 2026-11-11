@@ -2,7 +2,7 @@
 import os
 import sys
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent / "mock_sites"))
@@ -76,6 +76,70 @@ class PhoneDriverTests(unittest.TestCase):
         self.assertEqual(cap["status"], "ok", cap)
         pr = lists.parse_pnr(cap, "4512345678")
         self.assertEqual([p["current"]["status"] for p in pr["passengers"]], ["RAC", "CNF"])
+
+    def test_fast_lane_running_status_picks_the_right_run(self):
+        self.mock.fast["calls"].clear()
+        rc = self.recipe("ntes_status", "/mntes/")
+        cap = run_job(self.page(), rc, {"train": "12951", "date": self.today})
+        self.assertEqual(cap["status"], "ok", cap)
+        self.assertEqual(cap.get("fast"), "ntes-instances", cap["notes"])
+        self.assertEqual(self.mock.fast["calls"], [("tr", "12951")])
+        cap.update(vars={"train": "12951", "date": self.today}, finished_at=datetime.now(IST).isoformat())
+        p = ntes.parse_status(cap, "12951")
+        self.assertGreaterEqual(p.confidence, 0.7, p.issues)
+        want = self.mock.data.run("12951", datetime.now(IST).date())
+        self.assertEqual(p.position["code"], want["current"]["code"])
+        route, obs, issues = ntes.to_route_and_obs(p, "12951", datetime.now(IST).date(), cap, "assist")
+        self.assertTrue(route.open_ended and obs)
+        self.assertEqual(obs[-1].station_code, want["current"]["code"])
+        # a run that is not on the page gives nothing rather than another day's data
+        cap["vars"]["date"] = "2020-01-01"
+        p2 = ntes.parse_status(cap, "12951")
+        self.assertFalse(p2.stations)
+        self.assertLess(p2.confidence, 0.6)
+        # tomorrow's run: listed, not started
+        tm = (datetime.now(IST).date() + timedelta(days=1)).isoformat()
+        cap["vars"]["date"] = tm
+        self.assertTrue(ntes.parse_status(cap, "12951").not_started)
+
+    def test_fast_lane_falls_back_to_the_form(self):
+        self.mock.fast["no_token"] = True
+        try:
+            cap = run_job(self.page(), self.recipe("ntes_status", "/mntes/"), {"train": "12951", "date": self.today})
+        finally:
+            self.mock.fast.pop("no_token")
+        self.assertEqual(cap["status"], "ok", cap)
+        self.assertIsNone(cap.get("fast"))
+        self.assertGreaterEqual(ntes.parse_status(cap, "12951").confidence, 0.8)
+
+    def test_fast_lane_vacancy_chart(self):
+        self.mock.fast["calls"].clear()
+        v_ = {"train": "12951", "date": self.today, "station": "AWR", "class": "3A"}
+        cap = run_job(self.page(), self.recipe("irctc_berth", "/online-charts/"), v_)
+        self.assertEqual(cap["status"], "ok", cap)
+        self.assertEqual([c[0] for c in self.mock.fast["calls"]], ["trainComposition"] + ["coachComposition"] * 3)
+        v = irctc.parse_vacancy(cap, "AWR", "3A")
+        want = self.mock.data.berths("12951", self.today, "AWR", "3A")
+        self.assertEqual(v["method"], "irctc-json")
+        self.assertEqual(v["total_vacant"], len(want))
+        self.assertEqual(v["from_boarding"], sum(1 for w in want if w["from"] == "AWR"))
+        self.assertTrue(v["chart_prepared"])
+        self.assertEqual({(r["coach"], r["berth"], r["from"], r["to"]) for r in v["vacant"]},
+                         {(w["coach"], str(w["berth"]), w["from"], w["to"]) for w in want})
+        self.mock.fast["chart_not_prepared"] = True
+        try:
+            cap = run_job(self.page(), self.recipe("irctc_berth", "/online-charts/"), v_)
+        finally:
+            self.mock.fast.pop("chart_not_prepared")
+        v = irctc.parse_vacancy(cap, "AWR", "3A")
+        self.assertIs(v["chart_prepared"], False)
+        self.assertIn("Chart not prepared", v["issues"][0])
+        self.mock.fast["charts_refuse"] = True
+        try:
+            cap = run_job(self.page(), self.recipe("irctc_berth", "/online-charts/"), v_)
+        finally:
+            self.mock.fast.pop("charts_refuse")
+        self.assertEqual(cap["status"], "blocked")
 
     def test_blocked_site(self):
         cap = run_job(self.page(), self.recipe("ntes_status", "/ntes-b/?mode=blocked"), {"train": "12951", "date": self.today})

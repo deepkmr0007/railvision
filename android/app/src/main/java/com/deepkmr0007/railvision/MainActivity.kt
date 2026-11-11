@@ -243,6 +243,28 @@ class MainActivity : Activity() {
             }
         }
 
+        /** A file with what the assistant saw on its latest checks (no PNR checks), to send to whoever is helping you. */
+        @JavascriptInterface fun shareDiagnostic() {
+            Thread({
+                try {
+                    val d = Engine.api("GET", "/api/assist/diagnostic")
+                    d.put("device", JSONObject().put("android", Build.VERSION.RELEASE).put("sdk", Build.VERSION.SDK_INT)
+                        .put("model", Build.MANUFACTURER + " " + Build.MODEL).put("app", BuildConfig.VERSION_NAME + " (" + BuildConfig.VERSION_CODE + ")")
+                        .put("webview", android.webkit.WebSettings.getDefaultUserAgent(this@MainActivity))
+                        .put("assistant_status", AssistantAgent.status))
+                    val dir = java.io.File(cacheDir, "share").apply { mkdirs() }
+                    val f = java.io.File(dir, "railvision-diagnostic.json")
+                    f.writeText(d.toString(1))
+                    val uri = androidx.core.content.FileProvider.getUriForFile(this@MainActivity, "$packageName.files", f)
+                    val send = Intent(Intent.ACTION_SEND).setType("application/json").putExtra(Intent.EXTRA_STREAM, uri)
+                        .putExtra(Intent.EXTRA_SUBJECT, "RAILVISION diagnostic").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    ui.post { startActivity(Intent.createChooser(send, "Share diagnostic file")) }
+                } catch (e: Exception) {
+                    ui.post { android.widget.Toast.makeText(this@MainActivity, "Could not make the file: ${e.message}", android.widget.Toast.LENGTH_LONG).show() }
+                }
+            }, "rv-diagnostic").start()
+        }
+
         /** Share a status / PNR / alert text to WhatsApp or any app, as yourself. */
         @JavascriptInterface fun shareText(title: String, text: String) {
             ui.post {

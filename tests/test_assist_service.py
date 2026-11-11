@@ -49,7 +49,7 @@ class AssistServiceTests(unittest.TestCase):
 
     def test_watch_validation_and_limit(self):
         self.assertEqual(self.add("1295")[0], 422)
-        self.assertEqual(self.add(interval_min=2)[0], 422)
+        self.assertEqual(self.add(interval_min=1)[0], 422)
         self.assertEqual(call(self.app, "POST", "/api/assist/watch", {"train": "12951", "start_date": "2020-01-01"}, self.tok)[0], 422)
         self.assertEqual(self.add(berth_checks=[{"station": "NDLS", "class": "ZZ"}])[0], 422)
         for i in range(10):

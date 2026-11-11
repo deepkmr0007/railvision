@@ -22,6 +22,10 @@ sync {
     from(repoRoot.resolve("web"))
     into(webDir.resolve("web"))
 }
+copy {      // the page driver is shared with the desktop assistant; the app loads it from its assets
+    from(repoRoot.resolve("railvision/assist/rv_driver.js"))
+    into(webDir)
+}
 
 android {
     namespace = "com.deepkmr0007.railvision"
