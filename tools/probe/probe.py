@@ -1,6 +1,6 @@
 """One-off diagnostic: what do the real official pages look like to a phone browser, and how far does the
 app's driver (rv_driver.js) get on them?  A handful of page loads, paced; nothing is solved or bypassed."""
-import json, sys, time, traceback
+import json, os, sys, time, traceback
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
@@ -83,7 +83,7 @@ def p_status(cap):
     return {"confidence": p.confidence, "issues": p.issues, "stations": len(p.stations), "train": p.train_number}
 
 with sync_playwright() as p:
-    b = p.chromium.launch()
+    b = p.chromium.launch(**({"channel": os.environ["RV_BROWSER_CHANNEL"]} if os.environ.get("RV_BROWSER_CHANNEL") else {}))
     ctx = b.new_context(**p.devices["Pixel 7"], locale="en-IN", timezone_id="Asia/Kolkata")
     R["ip"] = {}
     try:

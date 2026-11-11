@@ -29,7 +29,7 @@ class PhoneDriverTests(unittest.TestCase):
         cls.mock = make_server(0)
         cls.base = f"http://127.0.0.1:{cls.mock.server_address[1]}"
         cls.pw = sync_playwright().start()
-        cls.browser = cls.pw.chromium.launch()
+        cls.browser = cls.pw.chromium.launch(**({"channel": os.environ["RV_BROWSER_CHANNEL"]} if os.environ.get("RV_BROWSER_CHANNEL") else {}))
         cls.today = datetime.now(IST).date().isoformat()
 
     @classmethod

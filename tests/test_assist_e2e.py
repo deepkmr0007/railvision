@@ -47,7 +47,7 @@ class AssistEndToEnd(unittest.TestCase):
         cls.base = f"http://127.0.0.1:{cls.srv.server_address[1]}"
         cls.client = Client(cls.base, cls.tok)
         cls.pw = sync_playwright().start()
-        cls.browser = cls.pw.chromium.launch()
+        cls.browser = cls.pw.chromium.launch(**({"channel": os.environ["RV_BROWSER_CHANNEL"]} if os.environ.get("RV_BROWSER_CHANNEL") else {}))
         cls.today = datetime.now(IST).date().isoformat()
 
     @classmethod
