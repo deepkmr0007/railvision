@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   apk:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     outputs:
       tag: ${{ steps.rel.outputs.tag }}
@@ -108,7 +108,7 @@ jobs:
   # Installs the APK on an Android 14 emulator, starts it, and lets the in-app assistant read the mock sites.
   smoke:
     needs: apk
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
