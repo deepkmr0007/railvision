@@ -187,6 +187,7 @@ class App:
         r("POST", r"/api/assist/captures", self.as_ingest, True)
         r("GET", r"/api/assist/captures", self.as_captures, True)
         r("GET", r"/api/assist/diagnostic", self.as_diagnostic, True)
+        r("GET", r"/api/assist/jobs/(?P<jid>\d+)", self.as_job_get, True)
         r("GET", r"/api/assist/captures/(?P<cid>\d+)", self.as_capture, True)
         r("GET", r"/api/assist/captures/(?P<cid>\d+)/screenshot", self.as_shot, True)
         r("GET", r"/api/assist/recipes", self.as_recipes, True)
@@ -647,8 +648,14 @@ class App:
 
     def as_job_add(self, req, uid):
         b = req.json()
-        v = {k: str(x) for k, x in (b.get("vars") or {}).items() if k in ("train", "date", "station", "class", "query")}
+        v = {k: str(x).strip() for k, x in (b.get("vars") or {}).items() if k in ("train", "date", "station", "class", "query", "date_is") and str(x).strip()}
         return _json(201, self._ve(self._as().queue_job, uid, str(b.get("kind")), v))
+
+    def as_job_get(self, req, uid, jid):
+        j = self._as().job_detail(uid, int(jid))
+        if not j:
+            raise HttpError(404, "check not found")
+        return _json(200, j)
 
     def admin_tick(self, req, uid):
         if self.mode != "demo":

@@ -141,6 +141,22 @@ document.getElementById('gc').onclick=async()=>{const t=document.getElementById(
 </script></body></html>"""
 
 
+PAGE_CHARTS = """<!doctype html><html><head><meta charset="utf-8"><title>MOCK Online Charts</title></head><body>
+<h2>MOCK Reservation Chart (test page shaped like the real one: a form, then coach boxes fed by JSON)</h2>
+%FORM%
+<button id="gc">Get Train Chart</button><div id="coaches"></div>
+<script>
+window.loadChart=async(t,d,b)=>{const r=await fetch('/online-charts/api/trainComposition',{method:'POST',headers:{'Content-Type':'application/json','X-Site-Token':'page-only'},
+  body:JSON.stringify({trainNo:t,jDate:d,boardingStation:b})});const j=await r.json();
+ document.getElementById('coaches').innerHTML=j.error?'<p>'+j.error+'</p>':'<p>Chart prepared</p>'+j.cdd.map(c=>'<div class="coach">'+c.coachName+' '+c.classCode+'</div>').join('')};
+const g=id=>document.getElementById(id);
+document.getElementById('gc').onclick=()=>{if(g('t'))loadChart(g('t').value.trim(),g('jd').value,g('bs').value.trim().toUpperCase())};
+</script></body></html>"""
+CHART_FORM = """<div><label for="t">Train Name/Number</label><input id="t" placeholder="Train Name/Number"></div>
+<div><label for="jd">Journey Date</label><input id="jd" type="date"></div>
+<div><label for="bs">Boarding Station</label><input id="bs" placeholder="Boarding Station"></div>"""
+
+
 MENU = "".join(f'<li><a href="/zone/view_section.jsp?lang=0&id=0,{i}">{t}</a></li>' for i, t in enumerate(
     ["About Us", "Divisions", "Tenders and Recruitment", "Passenger Services", "Freight Services", "Right to Information",
      "Vigilance", "Contact Us", "Sitemap", "Screen Reader Access"]))
@@ -237,8 +253,10 @@ def make_server(port=0, now=lambda: datetime.now(IST)):
                 return self.send(200, f"<html><body><h3>{j['trainNo']} - {j['trainName']}</h3><p>Last updated on {j['lastUpdated']}</p>{pos}"
                                       "<table border=1><tr><th>Station</th><th>Arr (Sch/Act)</th><th>Dep (Sch/Act)</th><th>Delay</th><th>PF</th><th>Km</th><th>Status</th></tr>"
                                       f"{rows}</table></body></html>")
-            if u.path in ("/irctc/", "/online-charts/"):
+            if u.path == "/irctc/":
                 return self.send(200, PAGE_IRCTC)
+            if u.path == "/online-charts/":       # ?form=odd: a form the assistant cannot fill in by itself
+                return self.send(200, PAGE_CHARTS.replace("%FORM%", "<canvas width=300 height=80></canvas>" if q.get("form") == "odd" else CHART_FORM))
             if u.path == "/mntes/":
                 if q.get("mode") == "blocked":
                     return self.send(403, "<html><body><h1>Access Denied</h1></body></html>")
@@ -290,7 +308,7 @@ def make_server(port=0, now=lambda: datetime.now(IST)):
                     out.append("</ul></div>")
                 return self.send(200, "".join(out) + "</div><script>window.x=1</script>")
             if u.path.startswith("/online-charts/api/"):
-                if fast.get("charts_refuse"):
+                if fast.get("charts_refuse") or (fast.get("need_header") and self.headers.get("X-Site-Token") != "page-only"):
                     return self.send(403, "Access Denied")
                 try:
                     b = json.loads(raw)

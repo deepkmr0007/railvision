@@ -19,7 +19,7 @@ def run_job(page, recipe: dict, vars_: dict, handover: bool = False, job_timeout
     deadline = time.time() + job_timeout_s
     notes = []
     for _ in range(200):
-        page.add_script_tag(content=DRIVER) if not page.evaluate("() => !!(window.rvDriver && window.rvDriver.v === 4)") else None
+        page.add_script_tag(content=DRIVER) if not page.evaluate("() => !!(window.rvDriver && window.rvDriver.v === 5)") else None
         job = {"recipe": recipe, "vars": vars_, "phase": phase, "handover": handover, "after": after,
                "deadline": (deadline if phase != "human" else time.time() + human_timeout_s) * 1000}
         try:

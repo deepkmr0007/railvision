@@ -72,6 +72,20 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(c0["raw"]["fast"], "irctc-charts")
         self.assertEqual(len(c0["raw"]["json"]), 2)
         self.assertEqual(c0["parse"]["vacancy"]["total_vacant"], 1)
+        # the same check as an on-demand job: the detail carries the full list and readable context
+        st, _, jb = call(app, "POST", "/api/assist/jobs", {"kind": "berth", "vars": {"train": "18609", "date": today, "station": "rnc", "date_is": "boarding"}}, tok)
+        self.assertEqual((st, json.loads(jb["vars"])["station"]), (201, "RNC"))
+        st, _, j2 = call(app, "POST", "/api/assist/jobs", {"kind": "berth", "vars": {"train": "12951", "date": today, "station": "alwar", "class": "all"}}, tok)
+        self.assertEqual(json.loads(j2["vars"]), {"train": "12951", "date": today, "station": "AWR"})
+        call(app, "POST", "/api/assist/captures", {**body, "job_id": jb["id"], "vars": json.loads(jb["vars"])}, tok)
+        st, _, det = call(app, "GET", f"/api/assist/jobs/{jb['id']}", token=tok)
+        self.assertEqual(st, 200, det)
+        self.assertEqual(det["status"], "done")
+        row = det["capture"]["vacancy"]["vacant"][0]
+        self.assertEqual((row["coach"], row["berth"], row["from"], row["to"]), ("S3", "7", "RNC", "LTT"))
+        self.assertTrue(det["capture"]["steps"])
+        for bad in ({"train": "12"}, {"train": "18609", "date": "x"}, {"train": "18609", "date": today}, {"train": "18609", "date": today, "station": "Nowhere Town"}):
+            self.assertEqual(call(app, "POST", "/api/assist/jobs", {"kind": "berth", "vars": bad}, tok)[0], 422, bad)
         # PNR checks never go into the bundle
         call(app, "POST", "/api/assist/captures", {"kind": "pnr", "recipe": "pnr_status", "status": "ok", "vars": {"pnr": "4512345678"},
                                                    "text": "PNR 4512345678 Booking Status CNF", "tables": [], "finished_at": iso(NOW)}, tok)

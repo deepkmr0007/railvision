@@ -14,6 +14,7 @@ import secrets
 from dataclasses import asdict
 from datetime import date, datetime, timedelta
 
+from .. import stations
 from ..core.models import LiveObservation, ObsKind, Route, ScheduledStop, VacancySnapshot
 from ..core.status import build_status
 from ..core.timeutil import fmt_hm, iso, now_ist, parse_iso
@@ -315,6 +316,26 @@ class AssistService:
             raise ValueError("PNR must be 10 digits")
         if not recipe:
             raise ValueError("kind must be status, search, berth, list or pnr")
+        if kind == "berth":
+            if not re.fullmatch(r"\d{4,5}", vars_.get("train", "")):
+                raise ValueError("Enter the 5-digit train number")
+            try:
+                date.fromisoformat(vars_.get("date", ""))
+            except ValueError:
+                raise ValueError("Choose the journey date") from None
+            st = vars_.get("station", "")
+            if not st:
+                raise ValueError("Enter the boarding station (name or code)")
+            if not re.fullmatch(r"[A-Za-z]{1,5}", st) or not st.isupper():      # a name, or a code typed in lower case
+                found = stations.resolve(st)
+                if found:
+                    st = found[0].code
+                elif not re.fullmatch(r"[A-Za-z]{1,5}", st):
+                    raise ValueError(f"I don't know the station '{st}'. Type its station code (for example NDLS, RE, JP).")
+            vars_["station"] = st.upper()
+            vars_["class"] = vars_.get("class", "").upper().replace("ALL", "")
+            if not vars_["class"]:
+                vars_.pop("class")
         pending = self.store.q("SELECT COUNT(*) n FROM assist_jobs WHERE user_id=? AND status IN ('queued','running')", (user_id,))[0]["n"]
         if pending >= 10:
             raise ValueError("10 checks are already waiting; try again shortly")
@@ -346,6 +367,34 @@ class AssistService:
         jid = self.store.x("INSERT INTO assist_jobs(user_id,kind,recipe,vars,status,created_at) VALUES (?,?,?,?,?,?)",
                            (uid, "page", "web_page", self._j(vars_), "queued", iso(self.clock()))).lastrowid
         return {"id": jid}
+
+    def job_detail(self, user_id: str, jid: int) -> dict | None:
+        """One on-demand check with everything it found (the full vacancy list), or exactly why it failed."""
+        r = self.store.q("SELECT * FROM assist_jobs WHERE id=? AND user_id=?", (jid, user_id))
+        if not r:
+            return None
+        j = dict(r[0])
+        j["vars"] = json.loads(j["vars"] or "{}")
+        c = self.store.q("SELECT id,status,reason,url,finished_at,parse,confidence,raw FROM assist_captures WHERE job_id=? AND user_id=? ORDER BY id DESC LIMIT 1",
+                         (jid, user_id))
+        if c:
+            c = dict(c[0])
+            p = json.loads(c.pop("parse") or "{}")
+            raw = json.loads(c.pop("raw") or "{}") if c.get("raw") else {}
+            c.pop("raw", None)
+            c["steps"] = raw.get("steps") or []
+            c["answers"] = [{"url": str(x.get("url", "")).rsplit("/", 1)[-1], "status": x.get("status")} for x in raw.get("json") or []]
+            c["vacancy"] = p.get("vacancy")
+            c["headline"] = p.get("headline")
+            codes = {x for v in (c["vacancy"] or {}).get("vacant") or [] for x in (v.get("from"), v.get("to")) if x}
+            c["station_names"] = {}
+            for code in codes:
+                f = stations.resolve(code)
+                if f and f[0].code == code:
+                    c["station_names"][code] = f[0].name
+            j["capture"] = c
+        j["agent"] = self.agent_state(user_id)
+        return j
 
     def list_jobs(self, user_id: str, limit=20) -> list[dict]:
         return self.store.q("SELECT * FROM assist_jobs WHERE user_id=? ORDER BY id DESC LIMIT ?", (user_id, limit))

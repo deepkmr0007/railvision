@@ -116,7 +116,7 @@ def main():
     log("recipes pointed at the mock sites")
     today = datetime.now(IST).date().isoformat()
     api("POST", "/api/assist/jobs", {"kind": "status", "vars": {"train": "12951", "date": today}}, token=tok)
-    api("POST", "/api/assist/jobs", {"kind": "berth", "vars": {"train": "12951", "date": today, "station": "AWR", "class": "3A"}}, token=tok)
+    api("POST", "/api/assist/jobs", {"kind": "berth", "vars": {"train": "12951", "date": today, "station": "alwar", "date_is": "boarding"}}, token=tok)
     for tn in ("12907", "12914", "12921"):          # more trains on the same site: these should go through the already-open page
         api("POST", "/api/assist/jobs", {"kind": "status", "vars": {"train": tn, "date": today}}, token=tok)
     log("queued: running status for 4 trains + berths 3A from AWR")

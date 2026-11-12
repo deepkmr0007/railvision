@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.6.0 — 12 Nov 2026
+* **Vacant berths screen (Chart vacancy tab).** In the app this tab used to show only the demo train. It is now a real
+  tool: enter train number, journey date, boarding station (code or name) and class (or all classes) and get **every
+  vacant berth on the IRCTC chart: coach, berth/seat number, berth type, and the stations it is vacant from → to**, with
+  filters (class, coach, berth type, only usable from your station), counts per class, chart number/time, and Share.
+* **Three ways to read the chart**, tried in order on `www.irctc.co.in/online-charts`:
+  1. the quick data request;
+  2. filling in the page's form automatically and reading the data the page then loads;
+  3. if neither works, the app opens the IRCTC page and asks you to fill in the form and press *Get Train Chart*;
+     the moment the page loads the chart, the app reads every coach by itself.
+* **Failures are spelled out** on the screen (for example "HTTP 403 on the quick request"), with the steps the assistant
+  took, *Try again*, *Open the IRCTC page* and *Share diagnostic file*.
+* Station names are accepted for the boarding station where the app knows them; otherwise type the station code.
+* 161 tests.
+
 ## 2.5.0 — 11 Nov 2026
 * **Fast lane.** With the official page open in the assistant's browser, the app now asks the site for the data the same
   way the page's own buttons do (same origin, same cookies, read-only), instead of typing into the form every time.

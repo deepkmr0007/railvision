@@ -136,10 +136,42 @@ class PhoneDriverTests(unittest.TestCase):
         self.assertIn("Chart not prepared", v["issues"][0])
         self.mock.fast["charts_refuse"] = True
         try:
-            cap = run_job(self.page(), self.recipe("irctc_berth", "/online-charts/"), v_)
+            cap = run_job(self.page(), self.recipe("irctc_berth", "/online-charts/"), v_, job_timeout_s=40)
         finally:
             self.mock.fast.pop("charts_refuse")
-        self.assertEqual(cap["status"], "blocked")
+        self.assertNotEqual(cap["status"], "ok")
+        self.assertIn("HTTP 403", cap["reason"] + " ".join(cap["notes"]))          # the reason is spelled out, not hidden
+
+    def test_chart_all_classes(self):
+        cap = run_job(self.page(), self.recipe("irctc_berth", "/online-charts/"), {"train": "12951", "date": self.today, "station": "AWR"})
+        v = irctc.parse_vacancy(cap, "AWR", None)
+        self.assertEqual(v["coaches_read"], 9)
+        self.assertEqual(set(v["classes"]) | {"3A"}, {"3A", "SL", "2A"} & (set(v["classes"]) | {"3A"}))
+        self.assertTrue(all(r["coach"] and r["berth"] and r["from"] and r["to"] and r["class"] for r in v["vacant"]))
+
+    def test_chart_read_from_the_page_when_the_quick_request_is_refused(self):
+        # the site answers only the page's own requests (they carry a header the quick request does not know)
+        self.mock.fast["need_header"] = True
+        v_ = {"train": "12951", "date": self.today, "station": "AWR", "class": "3A"}
+        try:
+            cap = run_job(self.page(), self.recipe("irctc_berth", "/online-charts/"), v_, handover=True)
+            self.assertEqual(cap["status"], "ok", cap)
+            self.assertEqual(cap.get("fast"), "irctc-charts-page", cap["notes"])
+            want = self.mock.data.berths("12951", self.today, "AWR", "3A")
+            self.assertEqual(irctc.parse_vacancy(cap, "AWR", "3A")["total_vacant"], len(want))
+            # a form the assistant cannot fill in: the person does it, the chart is read from what the page loads
+            pg, asked = self.page(), []
+
+            def person(reason):
+                asked.append(reason)
+                pg.evaluate("([t, d]) => loadChart(t, d, 'AWR')", ["12951", self.today])
+
+            cap = run_job(pg, self.recipe("irctc_berth", "/online-charts/?form=odd"), v_, handover=True, on_needs_you=person)
+            self.assertTrue(asked and "Get Train Chart" in asked[0], cap)
+            self.assertEqual(cap["status"], "ok", cap)
+            self.assertEqual(irctc.parse_vacancy(cap, "AWR", "3A")["total_vacant"], len(want))
+        finally:
+            self.mock.fast.pop("need_header")
 
     def test_blocked_site(self):
         cap = run_job(self.page(), self.recipe("ntes_status", "/ntes-b/?mode=blocked"), {"train": "12951", "date": self.today})

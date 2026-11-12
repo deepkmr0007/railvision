@@ -730,7 +730,65 @@ async function vWatch(){
 
 /* ---------------- shell ---------------- */
 const _vSettings=()=>prefsPanel().then(h=>{S.prefsHtml=h;return vSettings()});
-const RENDER={overview:vOverview,trips:vTrips,news:vNews,help:vHelp,watch:vWatch,train:vTrain,crossing:vCrossing,station:vStation,vacancy:vVacancy,alerts:vAlerts,assistant:vAssistant,sources:vSources,settings:_vSettings};
+/* ---------------- Vacant chart (live): every vacant berth from the IRCTC reservation chart ---------------- */
+const CH={train:store.get("chTrain",""),date:null,station:store.get("chStn",""),cls:"",jobId:null,job:null,err:null,busy:false,f:{cls:"",coach:"",type:"",only:false},timer:null};
+const today_ist=()=>new Date(Date.now()+330*60000).toISOString().slice(0,10);
+function chartRows(){const v=CH.job&&CH.job.capture&&CH.job.capture.vacancy;if(!v)return [];
+  const num=x=>parseInt(x,10)||0;const cz=c=>[(c||"").replace(/\d+$/,""),num((c||"").match(/\d+$/))];
+  return (v.vacant||[]).filter(r=>(!CH.f.cls||r.class===CH.f.cls)&&(!CH.f.coach||r.coach===CH.f.coach)&&(!CH.f.type||r.type===CH.f.type)&&(!CH.f.only||r.at_boarding))
+    .sort((a,b)=>{const A=cz(a.coach),B=cz(b.coach);return A[0].localeCompare(B[0])||A[1]-B[1]||num(a.berth)-num(b.berth)})}
+function chartText(){const j=CH.job,v=j.capture.vacancy,rows=chartRows();
+  return `Vacant berths · ${j.vars.train}${v.train_name?" "+v.train_name:""} · ${j.vars.date} · from ${j.vars.station}\n`+
+    rows.map(r=>`${r.coach} ${r.berth}${r.type?" "+r.type:""}: ${r.from} → ${r.to}`).join("\n")+`\n(${rows.length} entries · IRCTC chart${v.chart_no?" "+v.chart_no:""}. Chart vacancy is not a booking.)`}
+async function chartPoll(){if(!CH.jobId)return;try{CH.job=await API.get("/api/assist/jobs/"+CH.jobId,true);CH.err=null}catch(e){CH.err=e.message||String(e)}
+  const pend=CH.job&&["queued","running"].includes(CH.job.status);CH.busy=!!pend;
+  clearTimeout(CH.timer);if(pend)CH.timer=setTimeout(chartPoll,2000);if(S.view==="vacancy")render()}
+async function vChart(){
+  if(!CH.date)CH.date=today_ist();
+  const j=CH.job,c=j&&j.capture,v=c&&c.vacancy,ag=(j&&j.agent)||{};
+  const form=`<form id="chartForm" class="panel" style="display:grid;gap:10px">
+    <div class="row" style="gap:10px;align-items:flex-end">
+     <label class="field">Train number<input id="chTrain" inputmode="numeric" pattern="[0-9]{4,5}" maxlength="5" required value="${esc(CH.train)}" class="mono" style="width:7em"></label>
+     <label class="field">Journey date<input id="chDate" type="date" required value="${esc(CH.date)}"></label>
+     <label class="field">Boarding station<input id="chStn" required value="${esc(CH.station)}" placeholder="Code or name, e.g. JP" style="width:11em" autocapitalize="characters"></label>
+     <label class="field">Class<select id="chCls">${["","1A","2A","3A","3E","SL","CC","EC","2S"].map(k=>`<option value="${k}" ${k===CH.cls?"selected":""}>${k||"All classes"}</option>`).join("")}</select></label>
+     <button class="btn" type="submit" ${CH.busy?"disabled":""}>${CH.busy?"Reading the chart…":"Show vacant berths"}</button></div>
+    <p class="muted" style="font-size:.82rem;margin:0">Journey date is the date the train leaves <b>your boarding station</b>, the same as on the IRCTC page. Charts appear about 4 hours before the train leaves its first station.</p></form>`;
+  let body="";
+  if(CH.err)body=`<div class="banner">${esc(CH.err)}</div>`;
+  else if(j&&CH.busy){const need=ag.state==="needs_you";
+    body=`<div class="panel" role="status" style="display:grid;gap:8px"><b>${need?"Your turn on the IRCTC page":"Reading the chart from the IRCTC page…"}</b>
+      <p class="muted" style="margin:0;font-size:.88rem">${need?esc(ag.reason||"")+" The chart is read automatically as soon as it appears.":(ag.online===false&&!IN_APP?"The browser assistant is not running. Start it to read the chart.":"The assistant opens www.irctc.co.in/online-charts and reads every coach. This usually takes 10–40 seconds.")}</p>
+      ${IN_APP?`<div class="row"><button class="btn ghost" type="button" id="phOpen">${need?"Open the IRCTC page":"Watch it work"}</button></div>`:""}</div>`}
+  else if(j&&v&&c.status==="ok"){
+    const all=v.vacant||[],rows=chartRows(),nm=c.station_names||{};
+    const uniq=k=>[...new Set(all.map(r=>r[k]).filter(Boolean))];
+    const sel=(id,label,vals,cur)=>`<label class="field">${label}<select id="${id}"><option value="">All</option>${vals.map(x=>`<option ${x===cur?"selected":""}>${esc(x)}</option>`).join("")}</select></label>`;
+    body=`<div class="panel" style="display:grid;gap:10px">
+      <div class="row" style="justify-content:space-between;gap:8px"><div style="min-width:0"><b>${esc(j.vars.train)} ${esc(v.train_name||"")}</b><div class="muted" style="font-size:.82rem">${esc(j.vars.date)} · boarding ${esc(j.vars.station)} · read ${esc(hm(c.finished_at))}</div></div>
+        <div class="row" style="gap:6px"><button class="btn ghost" type="button" id="chShare">${IN_APP?"Share":"Copy"}</button><button class="btn ghost" type="button" id="chAgain">Refresh</button></div></div>
+      ${v.chart_prepared===false?`<div class="banner"><b>Chart not prepared yet.</b> ${esc(v.message||"")} IRCTC publishes the first chart about 4 hours before the train leaves its first station. Try again later.</div>`:`
+      <div class="row" style="gap:6px"><span class="chip c-ok">${all.length} vacant</span><span class="chip c-acc">${v.from_boarding} usable from ${esc(j.vars.station)}</span>${v.chart_no?`<span class="chip c-nv">Chart ${v.chart_no}${v.chart_time?" · "+esc(String(v.chart_time).slice(5,16)):""}</span>`:""}<span class="chip c-nv">${v.coaches_read} coaches read</span>${Object.entries(v.classes||{}).map(([k,n])=>`<span class="chip c-nv">${esc(k)}: ${n}</span>`).join("")}</div>
+      <div class="row" style="gap:10px;align-items:flex-end">${sel("chFCls","Class",uniq("class"),CH.f.cls)}${sel("chFCoach","Coach",uniq("coach").sort((a,b)=>a.localeCompare(b,undefined,{numeric:true})),CH.f.coach)}${sel("chFType","Berth type",uniq("type"),CH.f.type)}
+        <label style="display:flex;gap:8px;align-items:center;padding-bottom:8px"><input type="checkbox" id="chFOnly" ${CH.f.only?"checked":""}> Only usable from ${esc(j.vars.station)}</label></div>
+      ${rows.length?`<div class="tbl" style="max-height:62vh;overflow:auto"><table style="table-layout:fixed;width:100%"><thead><tr><th style="width:23%">Coach</th><th style="width:27%">Berth / seat</th><th>Vacant from → to</th></tr></thead><tbody>${rows.map(r=>`<tr${r.at_boarding?' style="background:var(--sunk)"':""}><td><b class="mono" style="font-size:1.05rem">${esc(r.coach)}</b><div class="muted" style="font-size:.76rem">${esc(r.class||"")}</div></td><td><b class="mono" style="font-size:1.05rem">${esc(r.berth)}</b><div class="muted" style="font-size:.76rem">${esc(r.type||"")}</div></td><td style="overflow-wrap:anywhere"><b class="mono">${esc(r.from||"")} → ${esc(r.to||"")}</b>${nm[r.from]||nm[r.to]?`<div class="muted" style="font-size:.76rem">${esc(nm[r.from]||r.from)} → ${esc(nm[r.to]||r.to)}</div>`:""}</td></tr>`).join("")}</tbody></table></div>
+      <p class="muted" style="font-size:.8rem;margin:0">Showing ${rows.length} of ${all.length}. Shaded rows can be used from ${esc(j.vars.station)}. One berth can appear more than once when it is vacant on separate stretches.</p>`:`<p class="muted" style="margin:0">${all.length?"No entries match these filters.":"The chart lists no vacant berth for this selection."}</p>`}`}
+      ${(v.issues||[]).filter(x=>!/^IRCTC says/.test(x)).length?`<p class="muted" style="font-size:.8rem;margin:0">${v.issues.filter(x=>!/^IRCTC says/.test(x)).map(esc).join(" ")}</p>`:""}
+      <p class="muted" style="font-size:.8rem;margin:0">From the reservation chart on the official IRCTC page. A vacant chart entry is not a booking and can change; the TTE allots berths on the train.</p></div>`}
+  else if(j){
+    const why=(c&&c.reason)||j.summary||"The check did not finish.";
+    body=`<div class="panel" style="display:grid;gap:8px;border-color:var(--bad,#c0392b)"><b>Could not read the chart</b>
+      <p style="margin:0">${esc(why)}</p>
+      ${c&&(c.steps||[]).length?`<details><summary>What the assistant did</summary><ol style="margin:6px 0 0;padding-left:20px;font-size:.84rem">${c.steps.map(x=>`<li>${esc(String(x))}</li>`).join("")}</ol>${(c.answers||[]).length?`<p class="muted" style="font-size:.8rem">Site answers: ${c.answers.map(a=>esc(a.url)+" → "+esc(String(a.status))).join(", ")}</p>`:""}</details>`:""}
+      <div class="row" style="gap:6px"><button class="btn ghost" type="button" id="chAgain">Try again</button>${IN_APP?`<button class="btn ghost" type="button" id="phOpen">Open the IRCTC page</button><button class="btn ghost" type="button" id="phDiag">Share diagnostic file</button>`:`<button class="btn ghost" type="button" id="diagDl">Download diagnostic file</button>`}
+       <a class="btn ghost" href="https://www.irctc.co.in/online-charts/" target="_blank" rel="noopener">Official page</a></div></div>`}
+  return `<section class="view"><div><div class="eyebrow">IRCTC reservation chart</div><h2>Vacant berths</h2><p class="muted" style="margin:4px 0 0">Every vacant berth on the chart: coach, berth or seat number, and the stations it is vacant between.</p></div>${form}${body}</section>`}
+async function chartStart(){CH.err=null;CH.f={cls:"",coach:"",type:"",only:false};CH.busy=true;CH.job=null;render();
+  try{const vars={train:CH.train,date:CH.date,station:CH.station,date_is:"boarding"};if(CH.cls)vars.class=CH.cls;
+    const jb=await API.post("/api/assist/jobs",{kind:"berth",vars});CH.jobId=jb.id;
+    if(IN_APP){try{RVAndroid.setAssistantOn(true);RVAndroid.openAssistant();RVAndroid.checkNow()}catch(e){}}
+    chartPoll()}catch(e){CH.busy=false;CH.err=e.message||String(e);render()}}
+const RENDER={overview:vOverview,trips:vTrips,news:vNews,help:vHelp,watch:vWatch,train:vTrain,crossing:vCrossing,station:vStation,vacancy:()=>(S.mode==="server"&&S.serverMode==="live")?vChart():vVacancy(),alerts:vAlerts,assistant:vAssistant,sources:vSources,settings:_vSettings};
 let renderSeq=0;
 async function render(){const seq=++renderSeq;const m=$("#main");
   try{const html=await RENDER[S.view]();if(seq!==renderSeq)return;
@@ -781,10 +839,12 @@ document.addEventListener("click",async e=>{const t=e.target.closest("button,[da
   if(d.berth){S.vac.sel=S.vac.sel===d.berth?null:d.berth;return render()}
   if(d.ask)return ask(d.ask);
   if(d.themeSet){S.theme=d.themeSet;store.set("theme",S.theme);applyTheme();return render()}
+  if(t.id==="chAgain"){chartStart();return}
+  if(t.id==="chShare"){const tx=chartText();if(IN_APP)RVAndroid.shareText("Vacant berths "+CH.job.vars.train,tx);else{try{await navigator.clipboard.writeText(tx);toast("Copied")}catch(e){toast("Could not copy")}}return}
   if(IN_APP&&t.id==="phOpen"){RVAndroid.openAssistant();return}
   if(IN_APP&&t.id==="phCheck"){RVAndroid.checkNow();toast("Checking what's due");return}
   if(IN_APP&&t.id==="phDiag"){RVAndroid.shareDiagnostic();toast("Preparing the file…");return}
-  if(t.id==="diagDl"){try{const d=await API.get("/api/assist/diagnostic");const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([JSON.stringify(d,null,1)],{type:"application/json"}));a.download="railvision-diagnostic.json";a.click()}catch(e){toast("Could not make the file")}return}
+  if(t.id==="diagDl"){try{const d=await API.get("/api/assist/diagnostic",true);const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([JSON.stringify(d,null,1)],{type:"application/json"}));a.download="railvision-diagnostic.json";a.click()}catch(e){toast("Could not make the file")}return}
   if(IN_APP&&t.id==="phBattery"){RVAndroid.askBatteryUnrestricted();return}
   if(IN_APP&&t.id==="phNotif"){RVAndroid.askNotifications();return}
   if(t.id==="themeBtn"){const o=["system","light","dark"];S.theme=o[(o.indexOf(S.theme)+1)%3];store.set("theme",S.theme);applyTheme();if(S.view==="settings")render();return}
@@ -796,6 +856,8 @@ document.addEventListener("click",async e=>{const t=e.target.closest("button,[da
 });
 function alertMsg(m){const x=$("#fMsg");if(x)x.textContent=m}
 document.addEventListener("change",e=>{const t=e.target;
+  if(t.id==="chFCls"){CH.f.cls=t.value;render();return}if(t.id==="chFCoach"){CH.f.coach=t.value;render();return}
+  if(t.id==="chFType"){CH.f.type=t.value;render();return}if(t.id==="chFOnly"){CH.f.only=t.checked;render();return}
   if(t.id==="cStation"){S.station=t.value;store.set("cstation",S.station);render()}
   if(t.id==="nCat"){S.newsF.cat=t.value;render()}
   if(t.id==="vFrom"){S.vac.from=t.value;S.vac.sel=null;render()}
@@ -806,6 +868,8 @@ document.addEventListener("change",e=>{const t=e.target;
   if(t.id==="scrub"){S.frame=+t.value;$("#scrubT").textContent=hm(API.now());tickClock();render()}});
 document.addEventListener("input",e=>{if(e.target.id==="scrub"){S.frame=+e.target.value;$("#scrubT").textContent=hm(API.now());tickClock();render()}});
 document.addEventListener("submit",async e=>{e.preventDefault();const f=e.target;
+  if(f.id==="chartForm"){CH.train=$("#chTrain").value.trim();CH.date=$("#chDate").value;CH.station=$("#chStn").value.trim();CH.cls=$("#chCls").value;
+    store.set("chTrain",CH.train);store.set("chStn",CH.station);chartStart();return}
   if(f.id==="watchForm"){const msg=$("#wMsg");const body={train:$("#wTrain").value.trim(),start_date:$("#wDate").value,interval_min:+$("#wInt").value,
       ref_station:$("#wRef").value.trim().toUpperCase()||null,end_station:$("#wEnd").value.trim().toUpperCase()||null,notify:$("#wNotify").value,
       destinations:["app",...[...f.querySelectorAll("input[name=wdest]:checked")].map(x=>x.value)]};

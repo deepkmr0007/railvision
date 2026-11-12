@@ -192,7 +192,7 @@ object AssistantAgent {
     }
 
     private fun ensureDriver() {
-        if (evalSync("!!(window.rvDriver && window.rvDriver.v === 4)") != "true") evalSync(driverJs + "\n;true")
+        if (evalSync("!!(window.rvDriver && window.rvDriver.v === 5)") != "true") evalSync(driverJs + "\n;true")
     }
 
     /** One driver step. null = the page changed under us (re-inject and retry). */
@@ -331,7 +331,7 @@ object AssistantAgent {
             val human = phase == "human"
             val j = JSONObject().put("recipe", recipe).put("vars", vars).put("phase", phase).put("handover", true)
                 .put("after", after).put("deadline", (if (human) humanDeadline else deadline).toDouble())
-            val r = step(j, if (phase == "fast") 120_000 else 30_000)
+            val r = step(j, if (phase == "fast" || phase == "chartfill") 120_000 else 30_000)
             if (r == null) {
                 if (phase == "fast") { phase = "open"; reused = false; notes.put("fast lane timed out; using the form"); goto(url); if (refused(out)) return; Thread.sleep(1000); continue }
                 if (++retries > 8) { out.put("status", "recipe_failed").put("reason", "The page kept changing while it was being read."); return }
