@@ -109,11 +109,16 @@ SOURCE_MATRIX = [
         "integration": "news/fetch.py XClient", "url": "https://docs.x.com/",
     },
     {
-        "source": "Official web pages you add (zonal railways, divisions, Railway Board notices)", "status": "OFFICIAL PAGES",
-        "fields": "New notice links on the page", "coverage": "Per page", "update_frequency": "Your interval (≥15 min)",
-        "auth": "None", "terms": "robots.txt respected (disallowed pages are skipped), conditional GET, clear User-Agent",
-        "cost_limits": "Free", "approval": VERIFIED_NOW, "url": None,
-        "tests": "Baseline/new-link detection, ETag 304, robots.txt refusal unit-tested", "integration": "news/fetch.py parse_web",
+        "source": "Zonal railway websites (xx.indianrailways.gov.in) — press releases + the notice itself (page or PDF)",
+        "status": "OFFICIAL PAGES",
+        "fields": "New press-release links, then the notice text (HTML, or PDF via pypdf)", "coverage": "16 zones built in; add any page",
+        "update_frequency": "Every 2 h (zones of your trips/stations switch on automatically)", "auth": "None",
+        "terms": "15 Oct 2026: robots.txt of the zone pages refused our automated fetch tool. RAILVISION reads directly only where "
+                 "robots.txt allows; otherwise you can let your own browser assistant read them like a person (personal, low rate).",
+        "cost_limits": "Free; 5 notice details per page check", "approval": VERIFIED_NOW + " (7 zone addresses found by search; 9 follow the same pattern, unconfirmed)",
+        "url": "https://nr.indianrailways.gov.in/view_section.jsp?lang=0&id=0,4,268",
+        "tests": "Menu filtering, detail text, PDF text, robots refusal, migration, assistant list+detail+PDF end-to-end on a mock portal",
+        "integration": "news/official.py, news/service.py, assist web_page recipe",
     },
     {
         "source": "Demo synthetic fixtures", "status": "INTERNAL / SYNTHETIC", "fields": "All modules (fake)",

@@ -64,7 +64,7 @@ def build_status(route: Route, observations: list, service_date, now: datetime,
         first = route.stops[0]
         dep = first.dep_dt(service_date)
         state = "NOT_STARTED" if dep and now < dep else "NO_REPORTS"
-    elif int(cur.idx) == len(codes) - 1 and cur.obs.kind == ObsKind.ARRIVED:
+    elif int(cur.idx) == len(codes) - 1 and cur.obs.kind == ObsKind.ARRIVED and not route.open_ended:
         state = "COMPLETED"
     elif cur.obs.kind == ObsKind.ARRIVED:
         state = "AT_STATION"

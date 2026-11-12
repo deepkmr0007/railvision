@@ -121,7 +121,8 @@ class NewsServiceTests(unittest.TestCase):
     def test_pib_filtered_and_alerts_for_your_train(self):
         self.net.pages["https://pib.gov.in/RssMain.aspx?ModId=6&Lang=1&Regid=3"] = RSS
         s = self.news.tick()
-        self.assertEqual((s["new"], s["errors"]), (2, 0), s)       # AYUSH item filtered out
+        self.assertEqual(s["new"], 2, s)                            # AYUSH item filtered out
+        self.assertEqual(sorted(s["auto_followed"]), ["zone_nr", "zone_nwr"], "trip NDLS→RE follows Northern + North Western pages")
         items = self.news.items(self.uid)
         self.assertEqual(len(items), 2)
         top = self.news.items(self.uid, relevant_only=True)

@@ -34,7 +34,7 @@ from ..services.store import Store
 from ..services.tracker import TaskError, TrackingEngine
 from ..services.wa_bot import WhatsAppBot
 
-WEB_DIR = Path(__file__).resolve().parents[2] / "web"
+WEB_DIR = Path(os.environ.get("RAILVISION_WEB_DIR") or Path(__file__).resolve().parents[2] / "web")   # the phone app sets this
 MAX_BODY = 256 * 1024
 SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer", "X-Frame-Options": "DENY",
@@ -110,6 +110,7 @@ class App:
         self.digest = DigestService(self.store, self.dispatcher, self.news, self.journeys, self.assist, clock)
         if self.assist:
             self.assist.news = self.news
+            self.news.assist = self.assist
         self.news_enabled = os.environ.get("RAILVISION_NEWS", "true" if self.mode == "live" else "false").lower() == "true"
         self.chat = ChatEngine(self.tracker, self.registry, self.store, LLMIntentParser(), assist=self.assist)
         self.chat.news, self.chat.journeys = self.news, self.journeys
@@ -185,6 +186,8 @@ class App:
         r("POST", r"/api/assist/heartbeat", self.as_heartbeat, True)
         r("POST", r"/api/assist/captures", self.as_ingest, True)
         r("GET", r"/api/assist/captures", self.as_captures, True)
+        r("GET", r"/api/assist/diagnostic", self.as_diagnostic, True)
+        r("GET", r"/api/assist/jobs/(?P<jid>\d+)", self.as_job_get, True)
         r("GET", r"/api/assist/captures/(?P<cid>\d+)", self.as_capture, True)
         r("GET", r"/api/assist/captures/(?P<cid>\d+)/screenshot", self.as_shot, True)
         r("GET", r"/api/assist/recipes", self.as_recipes, True)
@@ -616,6 +619,9 @@ class App:
     def as_ingest(self, req, uid):
         return _json(201, self._ve(self._as().ingest, uid, req.json()))
 
+    def as_diagnostic(self, req, uid):
+        return _json(200, self._as().diagnostic(uid))
+
     def as_captures(self, req, uid):
         return _json(200, {"items": self._as().captures(uid, req.q1("watch_id"), int(req.q1("limit", "20") or 20))})
 
@@ -642,8 +648,14 @@ class App:
 
     def as_job_add(self, req, uid):
         b = req.json()
-        v = {k: str(x) for k, x in (b.get("vars") or {}).items() if k in ("train", "date", "station", "class", "query")}
+        v = {k: str(x).strip() for k, x in (b.get("vars") or {}).items() if k in ("train", "date", "station", "class", "query", "date_is") and str(x).strip()}
         return _json(201, self._ve(self._as().queue_job, uid, str(b.get("kind")), v))
+
+    def as_job_get(self, req, uid, jid):
+        j = self._as().job_detail(uid, int(jid))
+        if not j:
+            raise HttpError(404, "check not found")
+        return _json(200, j)
 
     def admin_tick(self, req, uid):
         if self.mode != "demo":

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="rv_bg">#0B1220</color>
+    <color name="rv_accent">#FF8A00</color>
+    <color name="rv_icon_bg">#0F2A4A</color>
+</resources>

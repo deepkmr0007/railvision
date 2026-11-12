@@ -58,6 +58,20 @@ _SEED: list[tuple] = [
     ("BBS", "Bhubaneswar", "भुवनेश्वर", 20.267, 85.843, ("bhubaneswar",)),
 ]
 
+# Railway zone of each seed station (zone names as used in announcements: "<Name> Railway")
+STATION_ZONE = {
+    "NDLS": "Northern", "DLI": "Northern", "NZM": "Northern", "DEE": "Northern", "ANVT": "Northern", "DEC": "Northern",
+    "GGN": "Northern", "CDG": "Northern", "ASR": "Northern", "UMB": "Northern", "LDH": "Northern", "BSB": "Northern",
+    "RE": "North Western", "AWR": "North Western", "BKI": "North Western", "JP": "North Western", "GADJ": "North Western",
+    "AII": "North Western", "JU": "North Western", "BKN": "North Western",
+    "KOTA": "West Central", "SWM": "West Central", "BPL": "West Central",
+    "MTJ": "North Central", "AGC": "North Central", "CNB": "North Central", "PRYJ": "North Central",
+    "PNBE": "East Central", "HWH": "Eastern", "SDAH": "Eastern",
+    "MMCT": "Western", "BDTS": "Western", "ADI": "Western", "BRC": "Western", "ST": "Western",
+    "CSMT": "Central", "PUNE": "Central", "NGP": "Central",
+    "SBC": "South Western", "MAS": "Southern", "SC": "South Central", "GHY": "Northeast Frontier", "BBS": "East Coast",
+}
+
 _CITY_HI = {"delhi": ("dilli", "दिल्ली"), "jaipur": ("जयपुर",), "mumbai": ("मुंबई", "bambai"), "kolkata": ("कोलकाता",)}
 
 STATIONS: dict[str, Station] = {}

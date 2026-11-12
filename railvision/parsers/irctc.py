@@ -10,7 +10,7 @@ import re
 
 from .ntes import _jlists, _norm_key
 
-PARSER_VERSION = "irctc-vacancy-parser/1.0"
+PARSER_VERSION = "irctc-vacancy-parser/2.0"
 COACH = r"(?:[A-Z]{1,3}\d{1,2})"
 BTYPES = r"(?:SIDE\s+LOWER|SIDE\s+UPPER|LOWER|MIDDLE|UPPER|LB|MB|UB|SL|SU|SM|WS|MS|AS|WINDOW|AISLE|CB|CP)"
 BERTH_LINE = re.compile(r"\b(?P<coach>" + COACH + r")\b[\s,/|:-]{1,6}(?:berth\s*(?:no\.?)?\s*)?(?P<berth>\d{1,3})\b[\s,/|:-]{0,6}"
@@ -69,9 +69,137 @@ def _from_json(responses) -> list[dict]:
     return best
 
 
+BERTH_NAMES = {"L": "LOWER", "M": "MIDDLE", "U": "UPPER", "SL": "SIDE LOWER", "SU": "SIDE UPPER", "SM": "SIDE MIDDLE",
+               "LB": "LOWER", "MB": "MIDDLE", "UB": "UPPER", "W": "WINDOW", "A": "AISLE", "C": "COUPE", "R": "CABIN"}
+
+
+def _station_order(chains: list[list[str]]) -> tuple[dict[str, int], dict[str, set[str]]]:
+    """Route order of station codes, from the berth segments themselves (each berth's splits run origin → destination)."""
+    after: dict[str, set[str]] = {}
+    indeg: dict[str, int] = {}
+    for ch in chains:
+        for a, b in zip(ch, ch[1:]):
+            if a != b and b not in after.setdefault(a, set()):
+                after[a].add(b)
+                indeg[b] = indeg.get(b, 0) + 1
+            indeg.setdefault(a, indeg.get(a, 0))
+            after.setdefault(b, set())
+    order, ready = {}, sorted(k for k, v in indeg.items() if v == 0)
+    while ready:
+        n = ready.pop(0)
+        order[n] = len(order)
+        for m in sorted(after.get(n, ())):
+            indeg[m] -= 1
+            if indeg[m] == 0:
+                ready.append(m)
+    return order, after
+
+
+def _before(after: dict[str, set[str]], a: str, b: str) -> bool:
+    """True only when the chart itself proves station a comes before b on the route."""
+    seen, todo = set(), [a]
+    while todo:
+        n = todo.pop()
+        for m in after.get(n, ()):
+            if m == b:
+                return True
+            if m not in seen:
+                seen.add(m)
+                todo.append(m)
+    return False
+
+
+def _from_charts(responses, boarding: str | None) -> dict | None:
+    """IRCTC online-charts JSON: trainComposition (coaches) + coachComposition (every berth with its journey splits).
+
+    A berth is vacant on a split only when the chart says occupancy == false. Missing or other values are never
+    counted as vacant, and the coach-level 'vacantBerths' number is not used (it was 0 on charts that had vacant splits)."""
+    comp, coaches = None, []
+    for r in responses or []:
+        url = str(r.get("url") or "")
+        try:
+            j = json.loads(r.get("body") or "")
+        except ValueError:
+            continue
+        if not isinstance(j, dict):
+            continue
+        if "trainComposition" in url or "cdd" in j or "chartStatusResponseDto" in j:
+            comp = j
+        elif "coachComposition" in url or "bdd" in j:
+            req = r.get("req") or {}
+            coaches.append((str(j.get("coachName") or req.get("coach") or "").upper(), str(req.get("cls") or "").upper(), j))
+    if comp is None and not coaches:
+        return None
+    cls_of = {str(c.get("coachName")).upper(): str(c.get("classCode") or "").upper() for c in (comp or {}).get("cdd") or [] if isinstance(c, dict)}
+    chains, raw = [], []
+    for coach, cls, j in coaches:
+        for b in j.get("bdd") or []:
+            if not isinstance(b, dict):
+                continue
+            splits = sorted([x for x in b.get("bsd") or [] if isinstance(x, dict)], key=lambda x: x.get("splitNo") or 0)
+            if not splits and b.get("from") and b.get("to") and b.get("occupancy") is False:
+                splits = [{"from": b["from"], "to": b["to"], "occupancy": False, "quota": b.get("quota")}]
+            ch = []
+            for sp in splits:
+                ch += [str(sp.get("from") or "").upper(), str(sp.get("to") or "").upper()]
+            if ch:
+                chains.append([c for c in ch if c])
+            run = None                                   # merge neighbouring vacant splits into one stretch
+            for sp in splits + [None]:
+                vac = sp is not None and sp.get("occupancy") is False
+                if vac and run and run["to"] == str(sp.get("from") or "").upper():
+                    run["to"] = str(sp.get("to") or "").upper()
+                    continue
+                if run:
+                    raw.append(run)
+                    run = None
+                if vac:
+                    code = str(b.get("berthCode") or "").upper()
+                    run = {"coach": coach, "berth": str(b.get("berthNo")), "type": BERTH_NAMES.get(code, code) or None,
+                           "from": str(sp.get("from") or "").upper() or None, "to": str(sp.get("to") or "").upper() or None,
+                           "class": cls or cls_of.get(coach) or None, "quota": sp.get("quota") or None,
+                           "cabin": b.get("cabinCoupeNameNo") or None}
+    order, after = _station_order(chains)
+    bd = (boarding or "").upper()
+    for r in raw:           # usable from the boarding station: starts there, or provably starts before it and ends after it
+        r["at_boarding"] = bool(bd) and (r["from"] == bd or (_before(after, r["from"], bd) and _before(after, bd, r["to"])))
+    dto = (comp or {}).get("chartStatusResponseDto") or {}
+    err = (comp or {}).get("error")
+    return {"rows": raw, "comp": comp, "coaches_read": len(coaches), "error": str(err) if err else None,
+            "chart_no": 2 if (dto.get("chartTwoFlag") or 0) > 0 or (comp or {}).get("chartTwoDate") else
+                        1 if (dto.get("chartOneFlag") or 0) > 0 or (comp or {}).get("chartOneDate") else None,
+            "chart_time": (comp or {}).get("chartTwoDate") or (comp or {}).get("chartOneDate"),
+            "coach_classes": cls_of, "route_order": [k for k, _ in sorted(order.items(), key=lambda kv: kv[1])]}
+
+
+
 def parse_vacancy(capture: dict, boarding: str | None = None, travel_class: str | None = None) -> dict:
     text = capture.get("text") or ""
     issues = []
+    ch = _from_charts(capture.get("json"), boarding)
+    if ch is not None:
+        comp = ch["comp"] or {}
+        rows = [r for r in ch["rows"] if not travel_class or not r.get("class") or r["class"] == travel_class.upper()]
+        by_coach: dict[str, int] = {}
+        classes: dict[str, int] = {}
+        for r in rows:
+            by_coach[r["coach"]] = by_coach.get(r["coach"], 0) + 1
+            if r.get("class"):
+                classes[r["class"]] = classes.get(r["class"], 0) + 1
+        prepared = False if ch["error"] or not (comp.get("cdd") or ch["coaches_read"]) else True
+        if ch["error"]:
+            issues.append(f"IRCTC says: {ch['error']}")
+        want = [c for c, k in ch["coach_classes"].items() if not travel_class or k == travel_class.upper()]
+        if prepared and travel_class and not want:
+            issues.append(f"This train's chart has no {travel_class.upper()} coach (classes: {', '.join(sorted(set(ch['coach_classes'].values()))) or 'none'}).")
+        if prepared and want and ch["coaches_read"] < len(want):
+            issues.append(f"Read {ch['coaches_read']} of {len(want)} coaches.")
+        conf = 0.9 if prepared and (ch["coaches_read"] or not want) else 0.8 if ch["error"] else 0.5
+        return {"vacant": rows, "classes": classes, "chart_prepared": prepared, "chart_no": ch["chart_no"], "chart_time": ch["chart_time"],
+                "by_coach": by_coach, "from_boarding": sum(1 for r in rows if r["at_boarding"]), "total_vacant": len(rows),
+                "boarding": boarding, "travel_class": travel_class, "method": "irctc-json", "confidence": conf,
+                "train_name": comp.get("trainName"), "train_start_date": comp.get("trainStartDate"), "coaches_read": ch["coaches_read"],
+                "coaches": sorted(want), "message": ch["error"], "issues": issues, "parser": PARSER_VERSION}
     rows, method = _from_json(capture.get("json")), "json"
     if not rows:
         rows, method = _from_tables(capture.get("tables")), "table"

@@ -168,6 +168,9 @@ ul.ev{margin:0;padding-left:18px;font-size:.88rem}
 .feed{display:grid;gap:10px}
 .note{border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:var(--surface);display:grid;gap:6px;min-width:0}
 .chip{max-width:100%;overflow:hidden;text-overflow:ellipsis}
+.note>*{min-width:0;max-width:100%}
+details{min-width:0;max-width:100%}
+.bubble{max-width:min(62ch,100%)!important;box-sizing:border-box}
 .note .row{gap:8px}
 .bubble{white-space:pre-wrap;font-size:.84rem;background:var(--sunk);border-radius:10px 10px 10px 2px;padding:10px 12px;max-width:62ch;overflow-wrap:anywhere}
 .chat{display:grid;gap:10px;max-height:62vh;overflow-y:auto;padding:4px}
@@ -521,15 +524,34 @@ async function prefsPanel(){const p=await API.prefs().catch(()=>({}));const dg=a
    <fieldset style="border:0;padding:0;margin:0;display:flex;flex-wrap:wrap;gap:12px"><legend class="eyebrow" style="margin-bottom:4px">Digest & urgent alerts go to</legend>${["app","whatsapp","telegram","email","browser"].map(d=>`<label class="row" style="gap:6px;font-size:.86rem"><input type="checkbox" name="pdest" value="${d}" ${(p.digest_destinations||["app"]).includes(d)?"checked":""} ${d==="app"||!live?"disabled":""}> ${DEST_LABEL[d]}</label>`).join("")}</fieldset>
    ${live?`<div class="row"><button class="btn" type="submit">Save</button><button class="btn ghost" type="button" id="dgSend">Send digest now</button><span id="pMsg" class="muted" style="font-size:.86rem"></span></div>`:""}
    <details ${S.mode==="snapshot"?"open":""}><summary class="muted" style="cursor:pointer;font-size:.86rem">Preview today's digest</summary><div class="bubble" style="margin-top:8px">${esc(dg.text||"")}</div></details></form>`}
+/* ---------------- the Android app (RVAndroid bridge exists only inside the APK) ---------------- */
+const IN_APP=!!window.RVAndroid;
+function toast(m){let x=document.getElementById("rvToast");if(!x){x=document.createElement("div");x.id="rvToast";x.setAttribute("role","status");x.setAttribute("aria-live","polite");
+  x.style.cssText="position:fixed;left:50%;bottom:24px;transform:translateX(-50%);max-width:calc(100% - 32px);background:var(--ink);color:var(--bg);padding:10px 14px;border-radius:10px;font-size:.9rem;z-index:99;box-shadow:0 4px 18px rgba(0,0,0,.25)";document.body.appendChild(x)}
+  x.textContent=m;x.style.display="block";clearTimeout(x._t);x._t=setTimeout(()=>{x.style.display="none"},2600)}
+if(IN_APP)document.addEventListener("visibilitychange",()=>{if(!document.hidden&&S.view==="settings")render()});
+function phoneState(){if(!IN_APP)return null;try{return JSON.parse(RVAndroid.phoneState())}catch(e){return null}}
+function phonePanel(){const p=phoneState();if(!p)return "";
+  return `<div class="panel" style="display:grid;gap:10px"><div class="row" style="justify-content:space-between"><h3 style="margin:0">Phone app</h3><span class="chip c-acc">v${esc(p.version)}</span></div>
+   <label style="display:flex;gap:10px;align-items:flex-start"><input type="checkbox" id="phAssist" ${p.assistant_on?"checked":""} style="margin-top:4px;flex:none"> <span style="min-width:0">Browser assistant reads the official pages for me</span></label>
+   <label style="display:flex;gap:10px;align-items:flex-start"><input type="checkbox" id="phKeep" ${p.keep_running?"checked":""} style="margin-top:4px;flex:none"> <span style="min-width:0">Keep running with the app closed (checks every few minutes; shows a small permanent notification)</span></label>
+   <p class="muted" style="font-size:.82rem;margin:0">Off: Android still runs a check about every 15 minutes, and your phone may delay it to save battery.</p>
+   <div class="row" style="gap:6px">${p.notifications?'<span class="chip c-ok">Notifications on</span>':'<button class="btn ghost" type="button" id="phNotif">Allow notifications</button>'}
+    ${p.battery_unrestricted?'<span class="chip c-ok">Battery: unrestricted</span>':'<button class="btn ghost" type="button" id="phBattery">Let it run in background</button>'}
+    <button class="btn ghost" type="button" id="phOpen">Open assistant browser</button>
+    <button class="btn ghost" type="button" id="phDiag">Share diagnostic file</button></div>
+   <p class="muted" style="font-size:.82rem;margin:0">If a check fails or reads the page wrongly, share the diagnostic file with whoever is helping you. It holds what the assistant saw on its last checks (the trains you watch; never your PNR checks).</p>
+   <dl class="kv"><dt>Assistant</dt><dd>${esc(p.needs_you||p.assistant_status||"—")}</dd></dl></div>`}
 function vSettings(){
   const live=S.mode==="server";
   return `<section class="view"><div><div class="eyebrow">Settings</div><h2>Preferences</h2></div>
    <div class="grid">
-    ${S.mode==="server"&&S.serverMode==="live"?`<div class="panel"><h3>Sign in</h3><p class="muted" style="font-size:.86rem;margin-top:0">${S.token?"This browser is signed in.":"Paste the access token from <span class='mono'>assist_data/token.txt</span>, or open the link the launcher printed."}</p>
+    ${phonePanel()}
+    ${S.mode==="server"&&S.serverMode==="live"&&!IN_APP?`<div class="panel"><h3>Sign in</h3><p class="muted" style="font-size:.86rem;margin-top:0">${S.token?"This browser is signed in.":"Paste the access token from <span class='mono'>assist_data/token.txt</span>, or open the link the launcher printed."}</p>
       <form id="tokForm" class="row" style="gap:6px"><label for="tokIn" class="muted" style="position:absolute;left:-9999px">Access token</label><input id="tokIn" class="mono" placeholder="rv_…" autocomplete="off" style="flex:1;min-width:0;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px"><button class="btn" type="submit">Save</button></form></div>`:""}
     <div class="panel"><h3>Appearance</h3><div class="seg" role="group" aria-label="Theme">${["system","light","dark"].map(t=>`<button type="button" data-theme-set="${t}" aria-pressed="${S.theme===t}">${t[0].toUpperCase()+t.slice(1)}</button>`).join("")}</div></div>
     <div class="panel"><h3>Low-bandwidth mode</h3><p class="muted" style="font-size:.86rem;margin-top:0">Hides the map and slows refresh to every 2 minutes.</p><label class="row" style="gap:8px"><input type="checkbox" id="lowbw" ${S.lowbw?"checked":""}> Use low-bandwidth mode</label></div>
-    <div class="panel"><h3>Browser notifications</h3><p class="muted" style="font-size:.86rem;margin-top:0">Show alerts as system notifications while this page is open.</p><button class="btn ghost" type="button" id="notifBtn" ${live?"":"disabled"}>Allow notifications</button> <span id="notifMsg" class="muted" style="font-size:.84rem"></span></div>
+    ${IN_APP?"":`<div class="panel"><h3>Browser notifications</h3><p class="muted" style="font-size:.86rem;margin-top:0">Show alerts as system notifications while this page is open.</p><button class="btn ghost" type="button" id="notifBtn" ${live?"":"disabled"}>Allow notifications</button> <span id="notifMsg" class="muted" style="font-size:.84rem"></span></div>`}
     <div class="panel"><h3>Link WhatsApp</h3><p class="muted" style="font-size:.86rem;margin-top:0">Get a one-time code, then send <span class="mono">LINK &lt;code&gt;</span> to the RAILVISION WhatsApp number. Reply STOP there to unsubscribe.</p><button class="btn ghost" type="button" id="linkBtn" ${live?"":"disabled"}>Get link code</button> <b class="mono" id="linkCode"></b></div>
     ${S.prefsHtml||""}
     <div class="panel"><h3>About this data</h3><p class="muted" style="font-size:.86rem;margin:0">Mode: <b>${esc(S.mode==="snapshot"?"offline demo replay":S.mode==="server"?("server · "+S.serverMode):"no server reachable")}</b>. Demo data is synthetic and always labelled. Live mode refuses demo data entirely.</p></div>
@@ -591,15 +613,22 @@ async function vTrips(){
 /* ---------------- Announcements ---------------- */
 const CAT_LABEL={cancellation:"Cancelled",diversion:"Diverted",reschedule:"Rescheduled",short_termination:"Short-terminated",regulation:"Blocks / regulation",weather:"Weather",special_train:"Special trains",extra_coach:"Extra coaches",platform:"Platform",ticketing:"Tickets & fares",safety:"Safety",new_service:"New services",general:"General"};
 const CAT_CHIP=c=>["cancellation","diversion","short_termination","regulation","weather","safety"].includes(c)?"c-bad":["reschedule","platform"].includes(c)?"c-amber":["special_train","extra_coach","new_service"].includes(c)?"c-ok":"c-nv";
-function newsItem(n){return `<article class="note" style="gap:6px"><div class="row" style="gap:6px;justify-content:space-between"><span class="row" style="gap:6px"><span class="chip ${n.source_kind==="x"?"c-acc":"c-nv"}">${esc(n.source_name)}</span>${n.official?'<span class="chip c-ok">Official</span>':""}${n.categories.filter(c=>c!=="general").map(c=>`<span class="chip ${CAT_CHIP(c)}">${esc(CAT_LABEL[c]||c)}</span>`).join("")}</span>
+function newsItem(n){return `<article class="note" style="gap:6px"><div class="row" style="gap:6px;justify-content:space-between"><span class="row" style="gap:6px;min-width:0;flex:1 1 0"><span class="chip ${n.source_kind==="x"?"c-acc":"c-nv"}">${esc(n.source_name)}</span>${n.official?'<span class="chip c-ok">Official</span>':""}${n.categories.filter(c=>c!=="general").map(c=>`<span class="chip ${CAT_CHIP(c)}">${esc(CAT_LABEL[c]||c)}</span>`).join("")}</span>
    <span class="fresh">${esc(n.published_at?n.published_at.slice(0,16).replace("T"," "):hm(n.fetched_at))}</span></div>
-   <div style="font-weight:600;overflow-wrap:anywhere">${esc(n.title)}</div>${n.text&&n.text!==n.title?`<div class="muted" style="font-size:.86rem;overflow-wrap:anywhere">${esc(n.text.slice(0,280))}</div>`:""}
+   <div style="font-weight:600;overflow-wrap:anywhere">${esc(n.title)}</div>${n.text&&n.text!==n.title?`${n.detail_status==="ok"?"":`<div class="muted" style="font-size:.86rem;overflow-wrap:anywhere">${esc(n.text.slice(0,280))}</div>`}`:""}
+   ${n.detail_status==="ok"&&n.text&&n.text!==n.title?`<details><summary class="muted" style="cursor:pointer;font-size:.84rem">Read the notice${/\.pdf(\?|$)/i.test(n.url||"")?" (PDF text)":""}</summary><div class="bubble" style="margin-top:6px;max-height:320px;overflow:auto">${esc(n.text.slice(0,3000))}</div></details>`:""}
+   ${n.detail_status&&n.detail_status!=="ok"&&n.detail_note?`<div class="muted" style="font-size:.78rem">Notice text not read: ${esc(n.detail_note)}</div>`:""}
    <div class="row" style="gap:6px">${n.score>=0.4?`<span class="chip ${n.score>=0.8?"c-bad":"c-amber"}" style="white-space:normal">For you: ${esc(n.why)}</span>`:""}${n.trains.map(t=>`<span class="chip c-nv mono">${esc(t)}</span>`).join("")}${n.stations.map(t=>`<span class="chip c-nv mono">${esc(t)}</span>`).join("")}${n.url?`<a href="${esc(n.url)}" target="_blank" rel="noopener" style="font-size:.84rem">Open source</a>`:""}</div></article>`}
 async function vNews(){
   const f=S.newsF||(S.newsF={rel:true,cat:"",q:""});
   const [items,src]=await Promise.all([API.news(f.rel,f.cat,f.q).catch(()=>[]),API.newsSources().catch(()=>({sources:[]}))]);const live=S.mode==="server";const x=src.x||{};
   const cats=Object.keys(CAT_LABEL).filter(c=>c!=="general");
-  const srcRows=(src.sources||[]).map(s=>`<div class="row" style="justify-content:space-between;border-top:1px solid var(--line);padding:7px 0;gap:8px">
+  const zoneSrc=(src.sources||[]).filter(s=>s.id.startsWith("zone_")),otherSrc=(src.sources||[]).filter(s=>!s.id.startsWith("zone_"));
+  const zoneRows=zoneSrc.sort((a,b)=>(b.enabled-a.enabled)||a.name.localeCompare(b.name)).map(s=>`<div class="row" style="justify-content:space-between;border-top:1px solid var(--line);padding:7px 0;gap:8px">
+    <div style="min-width:0"><div style="font-weight:600;font-size:.9rem">${esc(s.zone)} Railway ${s.verified?'<span class="chip c-ok">address checked</span>':'<span class="chip c-nv">address unconfirmed</span>'}</div>
+     <div class="muted" style="font-size:.78rem">${s.enabled?(s.fetch_via==="assistant"?"read by your browser assistant":"read directly"):"off"}${s.last_status?` · last: ${esc(s.last_status)}`:""}${s.count?` · ${s.count} items`:""}${s.last_status==="robots_disallow"?" · this site asks automated readers to stay away; switch to your browser assistant to read it like a person":""}</div></div>
+    ${live?`<span class="row" style="gap:6px"><button class="btn ghost" data-nact="${s.enabled?"off":"on"}" data-sid="${s.id}">${s.enabled?"On":"Off"}</button>${s.enabled?`<button class="btn ghost" data-nact="via" data-via="${s.fetch_via==="assistant"?"direct":"assistant"}" data-sid="${s.id}" title="How the page is read">${s.fetch_via==="assistant"?"Via assistant":"Direct"}</button>`:""}</span>`:`<span class="chip ${s.enabled?"c-ok":"c-nv"}">${s.enabled?(s.fetch_via==="assistant"?"assistant":"direct"):"off"}</span>`}</div>`).join("");
+  const srcRows=otherSrc.map(s=>`<div class="row" style="justify-content:space-between;border-top:1px solid var(--line);padding:7px 0;gap:8px">
     <div style="min-width:0"><div style="font-weight:600;font-size:.9rem">${esc(s.name)} ${s.official?'<span class="chip c-ok">Official</span>':""}</div><div class="muted" style="font-size:.78rem;overflow-wrap:anywhere">${esc(s.kind==="x"?"@"+s.handle+" · official X API":s.url||"read by your browser assistant")} · every ${s.interval_min} min · ${s.count} items${s.last_status?` · last: ${esc(s.last_status)}${s.last_detail?" ("+esc(s.last_detail)+")":""}`:""}</div></div>
     ${live&&s.kind!=="assist"?`<span class="row" style="gap:6px"><button class="btn ghost" data-nact="${s.enabled?"off":"on"}" data-sid="${s.id}">${s.enabled?"On":"Off"}</button>${s.enabled?`<button class="btn ghost" data-nact="now" data-sid="${s.id}">Fetch</button>`:""}</span>`:`<span class="chip ${s.enabled||s.kind==="assist"?"c-ok":"c-nv"}">${s.kind==="assist"?"via assistant":s.enabled?"on":"off"}</span>`}</div>`).join("");
   return `<section class="view"><div><div class="eyebrow">Official notices, in one place</div><h2>Announcements</h2>
@@ -610,7 +639,8 @@ async function vNews(){
       <select id="nCat" style="border:1px solid var(--line);border-radius:999px;padding:5px 10px;background:var(--surface)"><option value="">All topics</option>${cats.map(c=>`<option value="${c}" ${f.cat===c?"selected":""}>${CAT_LABEL[c]}</option>`).join("")}</select>
       <form id="nSearch" class="row" style="gap:6px"><input id="nQ" value="${esc(f.q)}" placeholder="Search" style="border:1px solid var(--line);border-radius:999px;padding:6px 12px;background:var(--bg);width:11em"></form></div>
      <div class="feed">${items.length?items.map(newsItem).join(""):`<p class="empty">${f.rel?"Nothing that concerns your trains or stations right now. Switch to Everything to see all railway notices.":"No announcements yet."}</p>`}</div></div></div>
-   <div class="col"><div class="panel"><h3>Sources</h3>${srcRows||'<p class="empty">No sources.</p>'}</div>
+   <div class="col"><div class="panel"><h3>Official railway websites</h3><p class="muted" style="font-size:.84rem;margin-top:0">Press releases from each zone's website, including the notice itself (page or PDF). Zones of your trips and stations switch on automatically.</p>${zoneRows}</div>
+    <div class="panel"><h3>Other sources</h3>${srcRows||'<p class="empty">No sources.</p>'}</div>
     <div class="panel"><h3>X (Twitter)</h3><p class="muted" style="font-size:.85rem;margin-top:0">Read only through X's official API with your own key. X charges per post read (about $0.005 each, checked Oct 2026). RAILVISION stops at your daily budget.</p>
      <dl class="kv"><dt>Key</dt><dd>${x.configured?"added":"not added (set X_BEARER_TOKEN)"}</dd><dt>Today</dt><dd>${x.posts??0} of ${x.budget_posts??60} posts · ≈ $${(x.cost_usd??0).toFixed(3)}</dd></dl>
      <div class="bar" style="margin-top:6px"><i style="width:${Math.min(100,Math.round(100*(x.posts||0)/(x.budget_posts||60)))}%"></i></div></div>
@@ -637,9 +667,9 @@ function ago(iso){if(!iso)return "never";const now=S.mode==="snapshot"?Date.pars
 function istDate(off){const d=new Date(Date.now()+5.5*36e5+off*864e5);return d.toISOString().slice(0,10)}
 function agentCard(a){const ag=a.agent||{};const st=ag.online?(ag.state==="paused"?["Paused","c-amber"]:ag.state==="needs_you"?["Needs you","c-bad"]:["Online","c-ok"]):["Offline","c-nv"];
   return `<div class="panel" style="display:grid;gap:8px"><div class="row" style="justify-content:space-between"><h3 style="margin:0">Browser assistant</h3><span class="chip ${st[1]}">${st[0]}</span></div>
-   <p class="muted" style="margin:0;font-size:.86rem">Runs on your computer and opens the official pages in a normal browser window, one train at a time. It never solves CAPTCHAs: if a site asks for one, the window is handed to you.</p>
+   <p class="muted" style="margin:0;font-size:.86rem">${IN_APP?"Runs inside this app and opens the official pages in its own browser, one train at a time.":"Runs on your computer and opens the official pages in a normal browser window, one train at a time."} It never solves CAPTCHAs: if a site asks for one, the window is handed to you.</p>
    <dl class="kv"><dt>Last contact</dt><dd>${esc(ago(ag.last_seen))}</dd>${ag.reason?`<dt>Note</dt><dd>${esc(ag.reason)}</dd>`:""}<dt>Site health</dt><dd>${esc((a.health||{}).status||"—")}</dd></dl>
-   ${ag.online?"":`<div class="banner">Start it on your computer: <span class="mono">start.bat</span> (Windows) or <span class="mono">./start.sh</span> (Mac/Linux). It signs this page in and keeps checking while it runs.</div>`}</div>`}
+   ${IN_APP?`<div class="row" style="gap:6px"><button class="btn ghost" type="button" id="phOpen">Open assistant browser</button><button class="btn ghost" type="button" id="phCheck">Check now</button><button class="btn ghost" type="button" id="phDiag">Share diagnostic</button></div>`:ag.online?`<div class="row"><button class="btn ghost" type="button" id="diagDl">Download diagnostic file</button></div>`:`<div class="banner">Start it on your computer: <span class="mono">start.bat</span> (Windows) or <span class="mono">./start.sh</span> (Mac/Linux). It signs this page in and keeps checking while it runs.</div>`}</div>`}
 function recipeCard(a){const r=a.recipes||{};const row=(k,label)=>{const x=r[k]||{};return `<div class="row" style="justify-content:space-between;border-top:1px solid var(--line);padding:6px 0;gap:8px">
    <span>${label}</span><span class="row" style="gap:6px"><span class="chip ${x.mode==="recorded"?"c-acc":"c-nv"}">${x.mode==="recorded"?x.steps+" recorded steps":"automatic"}</span><span class="chip ${x.verified?"c-ok":"c-amber"}">${x.verified?"verified":"not yet verified"}</span></span></div>`};
   return `<div class="panel"><h3>How pages are opened</h3>${row("ntes_status","Running status (NTES)")}${row("irctc_berth","Vacant berths (IRCTC charts)")}${row("ntes_search","Train name search")}
@@ -664,8 +694,9 @@ async function capturePanel(){if(!S.capSel)return "";const caps=await API.captur
    <div class="row" style="gap:6px">${capChip(c.status)}<span class="chip c-acc">Read confidence ${Math.round((c.confidence||0)*100)}%</span><span class="fresh">captured ${hm(c.finished_at)} · ${esc(c.title||"")}</span></div>
    ${c.reason?`<div class="warn">${esc(c.reason)}</div>`:""}${(p.issues||[]).map(i=>`<div class="warn">${esc(i)}</div>`).join("")}
    <dl class="kv"><dt>Page says</dt><dd>${esc(p.headline||"—")}</dd><dt>Stations read</dt><dd>${p.stations_found??"—"}</dd><dt>Source updated</dt><dd>${p.last_updated?hm(p.last_updated):"not shown on page"}</dd><dt>Parser</dt><dd class="mono">${esc(p.parser||"—")}</dd></dl>
-   ${bv?`<div class="panel flat" style="background:var(--sunk)"><b>Vacant berths · ${esc(berth.vars.class)} from ${esc(berth.vars.station)}</b><div class="row" style="gap:6px;margin-top:6px"><span class="chip c-ok">${bv.total_vacant} vacant entries</span><span class="chip c-acc">${bv.from_boarding} from ${esc(berth.vars.station)}</span>${Object.entries(bv.by_coach||{}).map(([k,n])=>`<span class="chip c-nv">${esc(k)}: ${n}</span>`).join("")}</div>
-     <div class="tbl" style="margin-top:8px;max-height:240px;overflow:auto"><table><thead><tr><th>Coach</th><th class="n">Berth</th><th>Type</th><th>From</th><th>To</th></tr></thead><tbody>${(bv.vacant||[]).map(b=>`<tr><td class="mono">${esc(b.coach)}</td><td class="n">${esc(b.berth)}</td><td>${esc(b.type||"")}</td><td class="mono">${esc(b.from||"")}</td><td class="mono">${esc(b.to||"")}</td></tr>`).join("")}</tbody></table></div>
+   ${bv?`<div class="panel flat" style="background:var(--sunk)"><b>Vacant berths · ${esc(berth.vars.class)} from ${esc(berth.vars.station)}</b><div class="row" style="gap:6px;margin-top:6px">${bv.chart_prepared===false?`<span class="chip c-amber">Chart not prepared yet</span>`:`<span class="chip c-ok">${bv.total_vacant} vacant stretches</span><span class="chip c-acc">${bv.from_boarding} usable from ${esc(berth.vars.station)}</span>`}${bv.chart_no?`<span class="chip c-nv">Chart ${bv.chart_no}${bv.chart_time?" · "+esc(String(bv.chart_time).slice(5,16)):""}</span>`:""}${Object.entries(bv.by_coach||{}).map(([k,n])=>`<span class="chip c-nv">${esc(k)}: ${n}</span>`).join("")}</div>
+     <div class="tbl" style="margin-top:8px;max-height:240px;overflow:auto"><table><thead><tr><th>Coach</th><th class="n">Berth</th><th>Type</th><th>From</th><th>To</th></tr></thead><tbody>${(bv.vacant||[]).slice().sort((a,b)=>(b.at_boarding?1:0)-(a.at_boarding?1:0)).map(b=>`<tr><td class="mono">${esc(b.coach)}</td><td class="n">${esc(b.berth)}</td><td>${esc(b.type||"")}</td><td class="mono">${b.at_boarding?"<b>"+esc(b.from||"")+"</b>":esc(b.from||"")}</td><td class="mono">${esc(b.to||"")}</td></tr>`).join("")}</tbody></table></div>
+     ${(bv.issues||[]).length?`<p class="muted" style="font-size:.8rem;margin:6px 0 0">${bv.issues.map(esc).join(" ")}</p>`:""}
      <p class="muted" style="font-size:.8rem;margin:6px 0 0">Chart vacancy is not a bookable seat or a guaranteed empty berth. Book only through official IRCTC channels.</p></div>`:""}
    ${url?`<div><div class="eyebrow">Screenshot of the page the assistant read</div><img src="${url}" alt="Screenshot of the official page" style="width:100%;border:1px solid var(--line);border-radius:8px;margin-top:6px"></div>`:""}
    <details><summary class="muted" style="cursor:pointer;font-size:.86rem">History (${caps.length})</summary><div class="feed" style="margin-top:8px">${caps.map(x=>`<div class="row" style="gap:8px;font-size:.84rem"><span class="mono">${hm(x.finished_at)}</span><span class="chip c-nv">${esc(x.kind)}</span>${capChip(x.status)}<span>${esc((x.parse||{}).headline||x.reason||"")}</span></div>`).join("")}</div></details></div>`}
@@ -677,7 +708,7 @@ async function vWatch(){
   const form=live?`<form id="watchForm" class="panel" style="display:grid;gap:12px"><div class="row" style="justify-content:space-between"><h3 style="margin:0">Add a train</h3><span class="muted" style="font-size:.84rem">${active} of 10 in use</span></div>
     <div class="row"><label class="field">Train number<input id="wTrain" class="mono" inputmode="numeric" maxlength="5" required style="width:7em"></label>
     <label class="field">Start date (from origin)<input id="wDate" type="date" value="${istDate(0)}" min="${istDate(-4)}" max="${istDate(3)}"></label>
-    <label class="field">Check every<select id="wInt">${[5,10,15,20,30,60].map(m=>`<option value="${m}" ${m===15?"selected":""}>${m} min</option>`).join("")}</select></label></div>
+    <label class="field">Check every<select id="wInt">${[2,3,5,10,15,20,30,60].map(m=>`<option value="${m}" ${m===5?"selected":""}>${m} min</option>`).join("")}</select></label></div>
     <div class="seg" role="group" aria-label="Start date shortcuts"><button type="button" data-wdate="-1">Started yesterday</button><button type="button" data-wdate="0">Today</button><button type="button" data-wdate="1">Tomorrow</button></div>
     <div class="row"><label class="field">Watch station (optional)<input id="wRef" class="mono" maxlength="5" placeholder="e.g. RE" style="width:7em"></label>
     <label class="field">Until (optional)<input id="wEnd" class="mono" maxlength="5" placeholder="e.g. DLI" style="width:7em"></label>
@@ -699,7 +730,65 @@ async function vWatch(){
 
 /* ---------------- shell ---------------- */
 const _vSettings=()=>prefsPanel().then(h=>{S.prefsHtml=h;return vSettings()});
-const RENDER={overview:vOverview,trips:vTrips,news:vNews,help:vHelp,watch:vWatch,train:vTrain,crossing:vCrossing,station:vStation,vacancy:vVacancy,alerts:vAlerts,assistant:vAssistant,sources:vSources,settings:_vSettings};
+/* ---------------- Vacant chart (live): every vacant berth from the IRCTC reservation chart ---------------- */
+const CH={train:store.get("chTrain",""),date:null,station:store.get("chStn",""),cls:"",jobId:null,job:null,err:null,busy:false,f:{cls:"",coach:"",type:"",only:false},timer:null};
+const today_ist=()=>new Date(Date.now()+330*60000).toISOString().slice(0,10);
+function chartRows(){const v=CH.job&&CH.job.capture&&CH.job.capture.vacancy;if(!v)return [];
+  const num=x=>parseInt(x,10)||0;const cz=c=>[(c||"").replace(/\d+$/,""),num((c||"").match(/\d+$/))];
+  return (v.vacant||[]).filter(r=>(!CH.f.cls||r.class===CH.f.cls)&&(!CH.f.coach||r.coach===CH.f.coach)&&(!CH.f.type||r.type===CH.f.type)&&(!CH.f.only||r.at_boarding))
+    .sort((a,b)=>{const A=cz(a.coach),B=cz(b.coach);return A[0].localeCompare(B[0])||A[1]-B[1]||num(a.berth)-num(b.berth)})}
+function chartText(){const j=CH.job,v=j.capture.vacancy,rows=chartRows();
+  return `Vacant berths · ${j.vars.train}${v.train_name?" "+v.train_name:""} · ${j.vars.date} · from ${j.vars.station}\n`+
+    rows.map(r=>`${r.coach} ${r.berth}${r.type?" "+r.type:""}: ${r.from} → ${r.to}`).join("\n")+`\n(${rows.length} entries · IRCTC chart${v.chart_no?" "+v.chart_no:""}. Chart vacancy is not a booking.)`}
+async function chartPoll(){if(!CH.jobId)return;try{CH.job=await API.get("/api/assist/jobs/"+CH.jobId,true);CH.err=null}catch(e){CH.err=e.message||String(e)}
+  const pend=CH.job&&["queued","running"].includes(CH.job.status);CH.busy=!!pend;
+  clearTimeout(CH.timer);if(pend)CH.timer=setTimeout(chartPoll,2000);if(S.view==="vacancy")render()}
+async function vChart(){
+  if(!CH.date)CH.date=today_ist();
+  const j=CH.job,c=j&&j.capture,v=c&&c.vacancy,ag=(j&&j.agent)||{};
+  const form=`<form id="chartForm" class="panel" style="display:grid;gap:10px">
+    <div class="row" style="gap:10px;align-items:flex-end">
+     <label class="field">Train number<input id="chTrain" inputmode="numeric" pattern="[0-9]{4,5}" maxlength="5" required value="${esc(CH.train)}" class="mono" style="width:7em"></label>
+     <label class="field">Journey date<input id="chDate" type="date" required value="${esc(CH.date)}"></label>
+     <label class="field">Boarding station<input id="chStn" required value="${esc(CH.station)}" placeholder="Code or name, e.g. JP" style="width:11em" autocapitalize="characters"></label>
+     <label class="field">Class<select id="chCls">${["","1A","2A","3A","3E","SL","CC","EC","2S"].map(k=>`<option value="${k}" ${k===CH.cls?"selected":""}>${k||"All classes"}</option>`).join("")}</select></label>
+     <button class="btn" type="submit" ${CH.busy?"disabled":""}>${CH.busy?"Reading the chart…":"Show vacant berths"}</button></div>
+    <p class="muted" style="font-size:.82rem;margin:0">Journey date is the date the train leaves <b>your boarding station</b>, the same as on the IRCTC page. Charts appear about 4 hours before the train leaves its first station.</p></form>`;
+  let body="";
+  if(CH.err)body=`<div class="banner">${esc(CH.err)}</div>`;
+  else if(j&&CH.busy){const need=ag.state==="needs_you";
+    body=`<div class="panel" role="status" style="display:grid;gap:8px"><b>${need?"Your turn on the IRCTC page":"Reading the chart from the IRCTC page…"}</b>
+      <p class="muted" style="margin:0;font-size:.88rem">${need?esc(ag.reason||"")+" The chart is read automatically as soon as it appears.":(ag.online===false&&!IN_APP?"The browser assistant is not running. Start it to read the chart.":"The assistant opens www.irctc.co.in/online-charts and reads every coach. This usually takes 10–40 seconds.")}</p>
+      ${IN_APP?`<div class="row"><button class="btn ghost" type="button" id="phOpen">${need?"Open the IRCTC page":"Watch it work"}</button></div>`:""}</div>`}
+  else if(j&&v&&c.status==="ok"){
+    const all=v.vacant||[],rows=chartRows(),nm=c.station_names||{};
+    const uniq=k=>[...new Set(all.map(r=>r[k]).filter(Boolean))];
+    const sel=(id,label,vals,cur)=>`<label class="field">${label}<select id="${id}"><option value="">All</option>${vals.map(x=>`<option ${x===cur?"selected":""}>${esc(x)}</option>`).join("")}</select></label>`;
+    body=`<div class="panel" style="display:grid;gap:10px">
+      <div class="row" style="justify-content:space-between;gap:8px"><div style="min-width:0"><b>${esc(j.vars.train)} ${esc(v.train_name||"")}</b><div class="muted" style="font-size:.82rem">${esc(j.vars.date)} · boarding ${esc(j.vars.station)} · read ${esc(hm(c.finished_at))}</div></div>
+        <div class="row" style="gap:6px"><button class="btn ghost" type="button" id="chShare">${IN_APP?"Share":"Copy"}</button><button class="btn ghost" type="button" id="chAgain">Refresh</button></div></div>
+      ${v.chart_prepared===false?`<div class="banner"><b>Chart not prepared yet.</b> ${esc(v.message||"")} IRCTC publishes the first chart about 4 hours before the train leaves its first station. Try again later.</div>`:`
+      <div class="row" style="gap:6px"><span class="chip c-ok">${all.length} vacant</span><span class="chip c-acc">${v.from_boarding} usable from ${esc(j.vars.station)}</span>${v.chart_no?`<span class="chip c-nv">Chart ${v.chart_no}${v.chart_time?" · "+esc(String(v.chart_time).slice(5,16)):""}</span>`:""}<span class="chip c-nv">${v.coaches_read} coaches read</span>${Object.entries(v.classes||{}).map(([k,n])=>`<span class="chip c-nv">${esc(k)}: ${n}</span>`).join("")}</div>
+      <div class="row" style="gap:10px;align-items:flex-end">${sel("chFCls","Class",uniq("class"),CH.f.cls)}${sel("chFCoach","Coach",uniq("coach").sort((a,b)=>a.localeCompare(b,undefined,{numeric:true})),CH.f.coach)}${sel("chFType","Berth type",uniq("type"),CH.f.type)}
+        <label style="display:flex;gap:8px;align-items:center;padding-bottom:8px"><input type="checkbox" id="chFOnly" ${CH.f.only?"checked":""}> Only usable from ${esc(j.vars.station)}</label></div>
+      ${rows.length?`<div class="tbl" style="max-height:62vh;overflow:auto"><table style="table-layout:fixed;width:100%"><thead><tr><th style="width:23%">Coach</th><th style="width:27%">Berth / seat</th><th>Vacant from → to</th></tr></thead><tbody>${rows.map(r=>`<tr${r.at_boarding?' style="background:var(--sunk)"':""}><td><b class="mono" style="font-size:1.05rem">${esc(r.coach)}</b><div class="muted" style="font-size:.76rem">${esc(r.class||"")}</div></td><td><b class="mono" style="font-size:1.05rem">${esc(r.berth)}</b><div class="muted" style="font-size:.76rem">${esc(r.type||"")}</div></td><td style="overflow-wrap:anywhere"><b class="mono">${esc(r.from||"")} → ${esc(r.to||"")}</b>${nm[r.from]||nm[r.to]?`<div class="muted" style="font-size:.76rem">${esc(nm[r.from]||r.from)} → ${esc(nm[r.to]||r.to)}</div>`:""}</td></tr>`).join("")}</tbody></table></div>
+      <p class="muted" style="font-size:.8rem;margin:0">Showing ${rows.length} of ${all.length}. Shaded rows can be used from ${esc(j.vars.station)}. One berth can appear more than once when it is vacant on separate stretches.</p>`:`<p class="muted" style="margin:0">${all.length?"No entries match these filters.":"The chart lists no vacant berth for this selection."}</p>`}`}
+      ${(v.issues||[]).filter(x=>!/^IRCTC says/.test(x)).length?`<p class="muted" style="font-size:.8rem;margin:0">${v.issues.filter(x=>!/^IRCTC says/.test(x)).map(esc).join(" ")}</p>`:""}
+      <p class="muted" style="font-size:.8rem;margin:0">From the reservation chart on the official IRCTC page. A vacant chart entry is not a booking and can change; the TTE allots berths on the train.</p></div>`}
+  else if(j){
+    const why=(c&&c.reason)||j.summary||"The check did not finish.";
+    body=`<div class="panel" style="display:grid;gap:8px;border-color:var(--bad,#c0392b)"><b>Could not read the chart</b>
+      <p style="margin:0">${esc(why)}</p>
+      ${c&&(c.steps||[]).length?`<details><summary>What the assistant did</summary><ol style="margin:6px 0 0;padding-left:20px;font-size:.84rem">${c.steps.map(x=>`<li>${esc(String(x))}</li>`).join("")}</ol>${(c.answers||[]).length?`<p class="muted" style="font-size:.8rem">Site answers: ${c.answers.map(a=>esc(a.url)+" → "+esc(String(a.status))).join(", ")}</p>`:""}</details>`:""}
+      <div class="row" style="gap:6px"><button class="btn ghost" type="button" id="chAgain">Try again</button>${IN_APP?`<button class="btn ghost" type="button" id="phOpen">Open the IRCTC page</button><button class="btn ghost" type="button" id="phDiag">Share diagnostic file</button>`:`<button class="btn ghost" type="button" id="diagDl">Download diagnostic file</button>`}
+       <a class="btn ghost" href="https://www.irctc.co.in/online-charts/" target="_blank" rel="noopener">Official page</a></div></div>`}
+  return `<section class="view"><div><div class="eyebrow">IRCTC reservation chart</div><h2>Vacant berths</h2><p class="muted" style="margin:4px 0 0">Every vacant berth on the chart: coach, berth or seat number, and the stations it is vacant between.</p></div>${form}${body}</section>`}
+async function chartStart(){CH.err=null;CH.f={cls:"",coach:"",type:"",only:false};CH.busy=true;CH.job=null;render();
+  try{const vars={train:CH.train,date:CH.date,station:CH.station,date_is:"boarding"};if(CH.cls)vars.class=CH.cls;
+    const jb=await API.post("/api/assist/jobs",{kind:"berth",vars});CH.jobId=jb.id;
+    if(IN_APP){try{RVAndroid.setAssistantOn(true);RVAndroid.openAssistant();RVAndroid.checkNow()}catch(e){}}
+    chartPoll()}catch(e){CH.busy=false;CH.err=e.message||String(e);render()}}
+const RENDER={overview:vOverview,trips:vTrips,news:vNews,help:vHelp,watch:vWatch,train:vTrain,crossing:vCrossing,station:vStation,vacancy:()=>(S.mode==="server"&&S.serverMode==="live")?vChart():vVacancy(),alerts:vAlerts,assistant:vAssistant,sources:vSources,settings:_vSettings};
 let renderSeq=0;
 async function render(){const seq=++renderSeq;const m=$("#main");
   try{const html=await RENDER[S.view]();if(seq!==renderSeq)return;
@@ -734,6 +823,7 @@ document.addEventListener("click",async e=>{const t=e.target.closest("button,[da
   if(d.copy){try{await navigator.clipboard.writeText(d.copy);t.textContent="Copied"}catch(e){t.textContent=d.copy}return}
   if(d.jact){try{if(d.jact==="pnr"){await API.post(`/api/journeys/${d.jid}/check-pnr`,{});t.textContent="Opening PNR page on your computer…";return}
      if(d.jact==="del")await API.post(`/api/journeys/${d.jid}`,null,true,"DELETE")}catch(err){t.textContent=err.message;return}return render()}
+  if(d.nact==="via"){try{await API.post(`/api/news/sources/${d.sid}`,{fetch_via:d.via},true,"PATCH")}catch(err){}return render()}
   if(d.nact){try{if(d.nact==="now")await API.post(`/api/news/sources/${d.sid}/fetch-now`,{});else await API.post(`/api/news/sources/${d.sid}`,{enabled:d.nact==="on"},true,"PATCH")}catch(err){}return render()}
   if(d.addsrc){try{await API.post("/api/news/sources",{kind:"web",url:d.addsrc,name:d.name});}catch(err){}return render()}
   if(t.id==="dgSend"){try{await API.post("/api/digest/send-now",{});t.textContent="Sent"}catch(err){t.textContent=err.message}return}
@@ -749,6 +839,14 @@ document.addEventListener("click",async e=>{const t=e.target.closest("button,[da
   if(d.berth){S.vac.sel=S.vac.sel===d.berth?null:d.berth;return render()}
   if(d.ask)return ask(d.ask);
   if(d.themeSet){S.theme=d.themeSet;store.set("theme",S.theme);applyTheme();return render()}
+  if(t.id==="chAgain"){chartStart();return}
+  if(t.id==="chShare"){const tx=chartText();if(IN_APP)RVAndroid.shareText("Vacant berths "+CH.job.vars.train,tx);else{try{await navigator.clipboard.writeText(tx);toast("Copied")}catch(e){toast("Could not copy")}}return}
+  if(IN_APP&&t.id==="phOpen"){RVAndroid.openAssistant();return}
+  if(IN_APP&&t.id==="phCheck"){RVAndroid.checkNow();toast("Checking what's due");return}
+  if(IN_APP&&t.id==="phDiag"){RVAndroid.shareDiagnostic();toast("Preparing the file…");return}
+  if(t.id==="diagDl"){try{const d=await API.get("/api/assist/diagnostic",true);const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([JSON.stringify(d,null,1)],{type:"application/json"}));a.download="railvision-diagnostic.json";a.click()}catch(e){toast("Could not make the file")}return}
+  if(IN_APP&&t.id==="phBattery"){RVAndroid.askBatteryUnrestricted();return}
+  if(IN_APP&&t.id==="phNotif"){RVAndroid.askNotifications();return}
   if(t.id==="themeBtn"){const o=["system","light","dark"];S.theme=o[(o.indexOf(S.theme)+1)%3];store.set("theme",S.theme);applyTheme();if(S.view==="settings")render();return}
   if(d.task){try{if(d.act==="delete")await API.post(`/api/tasks/${d.task}`,null,true,"DELETE");else await API.post(`/api/tasks/${d.task}/${d.act}`,null)}catch(err){alertMsg(err.message)}return render()}
   if(t.id==="playBtn")return togglePlay();
@@ -758,14 +856,20 @@ document.addEventListener("click",async e=>{const t=e.target.closest("button,[da
 });
 function alertMsg(m){const x=$("#fMsg");if(x)x.textContent=m}
 document.addEventListener("change",e=>{const t=e.target;
+  if(t.id==="chFCls"){CH.f.cls=t.value;render();return}if(t.id==="chFCoach"){CH.f.coach=t.value;render();return}
+  if(t.id==="chFType"){CH.f.type=t.value;render();return}if(t.id==="chFOnly"){CH.f.only=t.checked;render();return}
   if(t.id==="cStation"){S.station=t.value;store.set("cstation",S.station);render()}
   if(t.id==="nCat"){S.newsF.cat=t.value;render()}
   if(t.id==="vFrom"){S.vac.from=t.value;S.vac.sel=null;render()}
   if(t.id==="vCls"){S.vac.cls=t.value;S.vac.sel=null;render()}
+  if(t.id==="phKeep"&&IN_APP){RVAndroid.setKeepRunning(t.checked);toast(t.checked?"Keeps running in the background":"Background checks every ~15 min");return}
+  if(t.id==="phAssist"&&IN_APP){RVAndroid.setAssistantOn(t.checked);return}
   if(t.id==="lowbw"){S.lowbw=t.checked;store.set("lowbw",S.lowbw);applyTheme();restartPoll()}
   if(t.id==="scrub"){S.frame=+t.value;$("#scrubT").textContent=hm(API.now());tickClock();render()}});
 document.addEventListener("input",e=>{if(e.target.id==="scrub"){S.frame=+e.target.value;$("#scrubT").textContent=hm(API.now());tickClock();render()}});
 document.addEventListener("submit",async e=>{e.preventDefault();const f=e.target;
+  if(f.id==="chartForm"){CH.train=$("#chTrain").value.trim();CH.date=$("#chDate").value;CH.station=$("#chStn").value.trim();CH.cls=$("#chCls").value;
+    store.set("chTrain",CH.train);store.set("chStn",CH.station);chartStart();return}
   if(f.id==="watchForm"){const msg=$("#wMsg");const body={train:$("#wTrain").value.trim(),start_date:$("#wDate").value,interval_min:+$("#wInt").value,
       ref_station:$("#wRef").value.trim().toUpperCase()||null,end_station:$("#wEnd").value.trim().toUpperCase()||null,notify:$("#wNotify").value,
       destinations:["app",...[...f.querySelectorAll("input[name=wdest]:checked")].map(x=>x.value)]};

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Front of a locomotive inside the adaptive-icon safe zone (66dp circle of 108dp). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#FF8A00"
+        android:pathData="M40,30 h28 a8,8 0 0 1 8,8 v26 a8,8 0 0 1 -8,8 h-28 a8,8 0 0 1 -8,-8 v-26 a8,8 0 0 1 8,-8 z" />
+    <path android:fillColor="#0F2A4A"
+        android:pathData="M38,38 h32 v12 h-32 z" />
+    <path android:fillColor="#FFFFFF"
+        android:pathData="M42,60 m-3.5,0 a3.5,3.5 0 1 0 7,0 a3.5,3.5 0 1 0 -7,0 M66,60 m-3.5,0 a3.5,3.5 0 1 0 7,0 a3.5,3.5 0 1 0 -7,0" />
+    <path android:fillColor="#FFFFFF"
+        android:pathData="M48,32 h12 v3 h-12 z" />
+    <path android:fillColor="#FF8A00"
+        android:pathData="M38,72 l-6,8 h5 l5,-8 z M70,72 l6,8 h-5 l-5,-8 z" />
+    <path android:fillColor="#FFFFFF"
+        android:pathData="M30,80 h48 v3 h-48 z" />
+</vector>

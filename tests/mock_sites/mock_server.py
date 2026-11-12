@@ -141,9 +141,52 @@ document.getElementById('gc').onclick=async()=>{const t=document.getElementById(
 </script></body></html>"""
 
 
+PAGE_CHARTS = """<!doctype html><html><head><meta charset="utf-8"><title>MOCK Online Charts</title></head><body>
+<h2>MOCK Reservation Chart (test page shaped like the real one: a form, then coach boxes fed by JSON)</h2>
+%FORM%
+<button id="gc">Get Train Chart</button><div id="coaches"></div>
+<script>
+window.loadChart=async(t,d,b)=>{const r=await fetch('/online-charts/api/trainComposition',{method:'POST',headers:{'Content-Type':'application/json','X-Site-Token':'page-only'},
+  body:JSON.stringify({trainNo:t,jDate:d,boardingStation:b})});const j=await r.json();
+ document.getElementById('coaches').innerHTML=j.error?'<p>'+j.error+'</p>':'<p>Chart prepared</p>'+j.cdd.map(c=>'<div class="coach">'+c.coachName+' '+c.classCode+'</div>').join('')};
+const g=id=>document.getElementById(id);
+document.getElementById('gc').onclick=()=>{if(g('t'))loadChart(g('t').value.trim(),g('jd').value,g('bs').value.trim().toUpperCase())};
+</script></body></html>"""
+CHART_FORM = """<div><label for="t">Train Name/Number</label><input id="t" placeholder="Train Name/Number"></div>
+<div><label for="jd">Journey Date</label><input id="jd" type="date"></div>
+<div><label for="bs">Boarding Station</label><input id="bs" placeholder="Boarding Station"></div>"""
+
+
+MENU = "".join(f'<li><a href="/zone/view_section.jsp?lang=0&id=0,{i}">{t}</a></li>' for i, t in enumerate(
+    ["About Us", "Divisions", "Tenders and Recruitment", "Passenger Services", "Freight Services", "Right to Information",
+     "Vigilance", "Contact Us", "Sitemap", "Screen Reader Access"]))
+
+
+def zone_list(n_items: int) -> str:
+    items = [("view_detail.jsp?lang=0&id=0,4,268&dcd=101", "Commissioning of new foot over bridge at Bandikui station"),
+             ("uploads/files/notice102.pdf", "Cancellation / partial cancellation of trains due to traffic block"),
+             ("view_detail.jsp?lang=0&id=0,4,268&dcd=103", "Extension of special trains for the festival season")][:n_items]
+    rows = "".join(f'<tr><td>15.10.2026</td><td><a href="/zone/{h}">{t}</a></td></tr>' for h, t in items)
+    return (f'<html><head><title>Press Releases - MOCK Zonal Railway</title></head><body><nav><ul class="menu">{MENU}</ul></nav>'
+            f'<h2>Press Releases (MOCK zonal portal, test page)</h2><table>{rows}</table><footer><a href="/zone/disclaimer">Disclaimer and Copyright Policy</a></footer></body></html>')
+
+
+ZONE_DETAIL = {
+    "101": "<html><body><nav><ul class='menu'>" + MENU + "</ul></nav><h3>Commissioning of new foot over bridge at Bandikui station</h3>"
+           "<p>A new foot over bridge connecting platforms 1 to 3 at Bandikui (BKI) has been opened for passengers.</p></body></html>",
+    "103": "<html><body><nav><ul class='menu'>" + MENU + "</ul></nav><h3>Extension of special trains for the festival season</h3>"
+           "<p>Train No. 04815/04816 Jaipur - Delhi Sarai Rohilla festival special extended till 30.11.2026.</p></body></html>",
+}
+
+
 def make_server(port=0, now=lambda: datetime.now(IST)):
     data = MockData(now)
     stats = {"hits": 0}
+    from pdfmini import make_pdf
+    zone_state = {"items": 1}
+    fast = {"token": "", "calls": []}
+    pdf = make_pdf(["North Western Railway - Press Release (MOCK)", "Due to a traffic block between Rewari and Alwar,",
+                    "Train No. 12951 will remain cancelled on 20.10.2026", "and 12956 will be short terminated at Alwar."])
 
     class H(BaseHTTPRequestHandler):
         def log_message(self, *a):
@@ -183,6 +226,12 @@ def make_server(port=0, now=lambda: datetime.now(IST)):
                                       "<table border=1><tr><th>S.No</th><th>Booking Status</th><th>Current Status</th></tr>"
                                       "<tr><td>Passenger 1</td><td>WL/12</td><td>RAC/4</td></tr><tr><td>Passenger 2</td><td>CNF/B3/45/LB</td>"
                                       "<td>CNF/B3/45/LB</td></tr></table></body></html>")
+            if u.path == "/zone/view_section.jsp":
+                return self.send(200, zone_list(zone_state["items"]))
+            if u.path == "/zone/view_detail.jsp":
+                return self.send(200, ZONE_DETAIL.get(q.get("dcd", ""), "<html><body>not found</body></html>"))
+            if u.path == "/zone/uploads/files/notice102.pdf":
+                return self.send(200, pdf, "application/pdf")
             if u.path == "/ntes-b/":
                 if q.get("mode") == "blocked":
                     return self.send(403, "<html><body><h1>Access Denied</h1><p>You don't have permission to access this resource.</p></body></html>")
@@ -206,6 +255,17 @@ def make_server(port=0, now=lambda: datetime.now(IST)):
                                       f"{rows}</table></body></html>")
             if u.path == "/irctc/":
                 return self.send(200, PAGE_IRCTC)
+            if u.path == "/online-charts/":       # ?form=odd: a form the assistant cannot fill in by itself
+                return self.send(200, PAGE_CHARTS.replace("%FORM%", "<canvas width=300 height=80></canvas>" if q.get("form") == "odd" else CHART_FORM))
+            if u.path == "/mntes/":
+                if q.get("mode") == "blocked":
+                    return self.send(403, "<html><body><h1>Access Denied</h1></body></html>")
+                return self.send(200, PAGE_A.replace("%TRAINS%", json.dumps(TRAINS)))
+            if u.path == "/mntes/GetCSRFToken":
+                fast["token"] = f"v{stats['hits']}"
+                if fast.get("no_token"):
+                    return self.send(404, "not found")
+                return self.send(200, f"<input type='hidden' name='tk{len(fast['token'])}x' value='{fast['token']}' />")
             if u.path == "/irctc/api/summary":
                 classes = {c: len(data.berths(q["train"], q["date"], q["from"], c)) for c in ("3A", "SL")}
                 return self.send(200, json.dumps({"classes": classes}), "application/json")
@@ -213,10 +273,81 @@ def make_server(port=0, now=lambda: datetime.now(IST)):
                 return self.send(200, json.dumps(data.berths(q["train"], q["date"], q["from"], q["cls"])), "application/json")
             return self.send(404, "not found")
 
+        def do_POST(self):
+            """The requests the real pages make themselves (shapes follow public captures; data is synthetic)."""
+            stats["hits"] += 1
+            u = urlsplit(self.path)
+            raw = self.rfile.read(int(self.headers.get("Content-Length") or 0)).decode()
+            today = now().date()
+            if u.path == "/mntes/tr":
+                f = {k: v[0] for k, v in parse_qs(raw).items()}
+                fast["calls"].append(("tr", f.get("trainNo")))
+                if fast["token"] not in f.values():
+                    return self.send(403, "Invalid request")
+                tn = f.get("trainNo", "")
+                if tn not in TRAINS:
+                    return self.send(200, "<div class='w3-panel'>No running instance found for the given train.</div>")
+                out = [f"<div class='w3-container'><h5>{tn} - {TRAINS[tn]}</h5>"]
+                for k in (-1, 0, 1):
+                    d = today + timedelta(days=k)
+                    out.append(f"<div class='w3-card'><div class='w3-bar'><b>Start Date : {d.strftime('%d-%b-%Y')}</b></div>")
+                    if k == 1:
+                        out.append("<p>Yet to start from its source</p></div>")
+                        continue
+                    j = data.run(tn, d) if k == 0 else data.run(tn, today)
+                    out.append(f"<span class='w3-small'>Last Updates On{(now() - timedelta(minutes=2)).strftime('%d-%b-%Y %H:%M')}</span><ul>")
+                    for st in j["stations"]:
+                        if not st["isStoppage"]:
+                            continue
+                        dd = (d + timedelta(days=st["dayCnt"] - 1)).strftime("%d-%b")
+                        dl = f"Delay {st['delayArr'] // 60:02d}:{st['delayArr'] % 60:02d}" if st["delayArr"] else "On Time"
+                        if st["hasArrived"] and st["actArrTime"] != "SRC":
+                            out.append(f"<li>Arrived at {st['stnName']} ({st['stnCode']}) at {st['actArrTime']} {dd} <span>{dl}</span></li>")
+                        if st["hasDeparted"] and st["actDepTime"] != "DSTN":
+                            out.append(f"<li>Departed from {st['stnName']} ({st['stnCode']}) at {st['actDepTime']} {dd} <span>{dl}</span></li>")
+                    out.append("</ul></div>")
+                return self.send(200, "".join(out) + "</div><script>window.x=1</script>")
+            if u.path.startswith("/online-charts/api/"):
+                if fast.get("charts_refuse") or (fast.get("need_header") and self.headers.get("X-Site-Token") != "page-only"):
+                    return self.send(403, "Access Denied")
+                try:
+                    b = json.loads(raw)
+                except ValueError:
+                    return self.send(400, "bad json")
+                fast["calls"].append((u.path.rsplit("/", 1)[1], b.get("coach")))
+                tn, jd, bd = b.get("trainNo"), b.get("jDate"), b.get("boardingStation")
+                halts = [x[0] for x in BASE if x[5]]
+                if u.path.endswith("/trainComposition"):
+                    if fast.get("chart_not_prepared") or tn not in TRAINS:
+                        return self.send(200, json.dumps({"cdd": None, "trainNo": tn, "error": "Chart not prepared" if tn in TRAINS else "Train not found",
+                                                          "chartStatusResponseDto": None}), "application/json")
+                    cdd = [{"coachName": f"{pre}{i}", "classCode": cl, "positionFromEngine": 0, "vacantBerths": 0}
+                           for pre, cl in (("B", "3A"), ("S", "SL"), ("A", "2A")) for i in range(1, 4)]
+                    return self.send(200, json.dumps({"cdd": cdd, "trainNo": tn, "trainName": TRAINS[tn], "from": halts[0], "to": halts[-1],
+                                                      "trainStartDate": jd, "remote": halts[0], "chartOneDate": f"{jd} 04:10:00", "chartTwoDate": None,
+                                                      "error": None, "chartStatusResponseDto": {"chartOneFlag": 3, "chartTwoFlag": 0, "trainStartDate": jd}}),
+                                     "application/json")
+                if u.path.endswith("/coachComposition"):
+                    vac = {v["berth"]: v for v in data.berths(tn, jd, bd, b.get("cls")) if v["coach"] == b.get("coach")}
+                    bdd = []
+                    for no in range(1, 65):
+                        v, bsd = vac.get(no), []
+                        if v:
+                            i, k = halts.index(v["from"]), halts.index(v["to"])
+                            cuts = sorted({0, i, k, len(halts) - 1})
+                            for n, (x, y) in enumerate(zip(cuts, cuts[1:]), 1):
+                                bsd.append({"splitNo": n, "from": halts[x], "to": halts[y], "quota": "GN", "occupancy": not (i <= x and y <= k)})
+                        else:
+                            bsd.append({"splitNo": 1, "from": halts[0], "to": halts[-1], "quota": "GN", "occupancy": True})
+                        bdd.append({"cabinCoupe": None, "cabinCoupeNameNo": str((no - 1) // 8 + 1), "berthCode": ["L", "M", "U", "L", "M", "U", "SL", "SU"][(no - 1) % 8],
+                                    "berthNo": no, "from": halts[0], "to": halts[-1], "bsd": bsd, "quotaCntStn": None, "enable": True})
+                    return self.send(200, json.dumps({"bdd": bdd, "coachName": b.get("coach"), "error": None}), "application/json")
+            return self.send(404, "not found")
+
     srv = ThreadingHTTPServer(("127.0.0.1", port), H)
     srv.daemon_threads = True
     threading.Thread(target=srv.serve_forever, daemon=True).start()
-    srv.data, srv.stats = data, stats
+    srv.data, srv.stats, srv.zone_state, srv.fast = data, stats, zone_state, fast
     return srv
 
 

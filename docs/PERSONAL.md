@@ -45,6 +45,24 @@ Each item is tagged with train numbers, stations (English and Hindi names), city
 * Alerts go to your phone at **0.8+** by default (Settings → *Alert me for*). The *For you* feed
   shows everything from 0.4.
 
+### Official railway websites (v2.3)
+
+All 16 zonal railways have a **press-release page** built in (*Announcements → Official railway
+websites*). RAILVISION checks the page every 2 hours, ignores menus and footers, and then **opens
+each new notice**, a web page or a PDF, so train numbers inside the notice count too.
+
+* Zones of your trips, watched trains and saved stations switch on by themselves (Rewari or Jaipur →
+  North Western; New Delhi → Northern …). If you switch one off, it stays off.
+* **Direct** reading follows each site's robots.txt. On 15 Oct 2026 the zonal sites' robots.txt
+  refused automated readers, so expect "robots_disallow" there. Press **Via assistant** on that zone
+  and your own browser window reads the page and the PDFs like you would: up to 5 notices per check,
+  inside the assistant's normal pacing. This is personal use, the same as the NTES checks.
+* PDF notices need `pypdf` (installed by the start scripts). Scanned PDFs have no text, so you see
+  the title and link only.
+* Addresses: 7 zones were confirmed by web search (NR, WR, NER, SWR, SCR, SER, CR). The other 9 use
+  the same portal pattern but are unconfirmed. If one shows HTTP 404, open the zone's site, go to
+  *Press Releases*, and add that address as a web page.
+
 ### X (Twitter) setup
 
 1. Create a developer app at the X developer console and buy credits (X charges per use: about

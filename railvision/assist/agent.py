@@ -123,7 +123,8 @@ class Agent:
             self.log(f"  ↷ {job['vars']} skipped — {urlsplit(rc.start_url).hostname} paused for {paused / 60:.0f} more min")
             return None
         self.pacer.wait_turn()
-        label = job["vars"].get("train") or job["vars"].get("query")
+        label = job["vars"].get("train") or job["vars"].get("query") or job["vars"].get("list") or \
+            (job["vars"].get("url", "")[:70] if job["kind"] == "page" else "")
         self.log(f"→ {job['kind']} {label} {job['vars'].get('date', '')} {job['vars'].get('class', '')} via {rc.name} ({rc.mode})")
         runner = Runner(self.page, handover=self.headed, handover_timeout_s=self.handover_timeout_s,
                         on_status=self._state, log=self.log)

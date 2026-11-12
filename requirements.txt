@@ -1,3 +1,6 @@
 # Core runs on the Python 3.11+ standard library. These are only for the production ASGI server:
+# Browser assistant + PDF notices (installed by start.bat / start.sh):
+playwright>=1.40
+pypdf>=4.0
 fastapi>=0.110
 uvicorn[standard]>=0.29

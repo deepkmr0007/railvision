@@ -143,8 +143,9 @@ SKIP_TEXT = re.compile(r"^(home|login|sign ?in|contact( us)?|sitemap|faq|feedbac
                        r"हिन्दी|about( us)?|disclaimer|privacy|terms|help|search|more|read more|click here|archive)$", re.I)
 
 
-def parse_web(body: bytes, base_url: str) -> list[Item]:
-    """Turn an official notices page into items: each meaningful link (notice, press release, PDF) is one item."""
+def parse_web(body: bytes, base_url: str, link_filter: str | None = None) -> list[Item]:
+    """Turn an official notices page into items: each meaningful link (notice, press release, PDF) is one item.
+    `link_filter` (regex on the URL) keeps only announcement links, e.g. view_detail.jsp / .pdf on zonal portals."""
     txt = body.decode("utf-8", "replace")
     txt = re.sub(r"<(script|style|nav|footer)\b[\s\S]*?</\1>", " ", txt, flags=re.I)
     out, seen = [], set()
@@ -153,7 +154,7 @@ def parse_web(body: bytes, base_url: str) -> list[Item]:
         href = urllib.parse.urljoin(base_url, html.unescape(m.group("href").strip()))
         if not href.startswith(("http://", "https://")) or len(title) < 12 or SKIP_TEXT.match(title):
             continue
-        if href in seen:
+        if href in seen or (link_filter and not re.search(link_filter, href, re.I)):
             continue
         seen.add(href)
         out.append(Item(guid=href, title=title[:300], url=href))
@@ -165,7 +166,19 @@ class FeedFetcher:
         self.transport = transport
         self.robots = robots or Robots(transport)
 
-    def fetch(self, url: str, kind: str, etag: str | None = None, last_modified: str | None = None):
+    def fetch_detail(self, url: str, title_hint: str = "") -> tuple[str, str | None]:
+        """Text of one announcement (HTML page or PDF). Returns (text, note)."""
+        from .official import html_to_text, is_pdf, pdf_to_text
+        if not self.robots.allowed(url):
+            raise FetchError("robots_disallow", "robots.txt asks automated readers not to open this page")
+        st, hd, body = self.transport(url, {"User-Agent": UA, "Accept": "text/html, application/pdf;q=0.9, */*;q=0.5"})
+        if st != 200:
+            raise FetchError("http_error", f"HTTP {st}")
+        if is_pdf(url, hd.get("content-type", ""), body[:5]):
+            return pdf_to_text(body)
+        return html_to_text(body, title_hint), None
+
+    def fetch(self, url: str, kind: str, etag: str | None = None, last_modified: str | None = None, link_filter: str | None = None):
         """Returns (items | None if not modified, new_etag, new_last_modified)."""
         if not url.startswith("https://") and not url.startswith("http://"):
             raise FetchError("bad_url", "URL must start with https://")
@@ -184,7 +197,7 @@ class FeedFetcher:
             raise FetchError("refused", f"HTTP {st} — the site refused; backing off")
         if st != 200:
             raise FetchError("http_error", f"HTTP {st}")
-        items = parse_feed(body) if kind == "rss" else parse_web(body, url)
+        items = parse_feed(body) if kind == "rss" else parse_web(body, url, link_filter)
         return items, hd.get("etag"), hd.get("last-modified")
 
 

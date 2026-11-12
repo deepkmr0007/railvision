@@ -10,3 +10,10 @@ captures/
 .venv/
 node_modules/
 dist/*.png
+
+# Android build output
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+*.apk
